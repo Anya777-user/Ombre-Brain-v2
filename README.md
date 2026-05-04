@@ -643,8 +643,42 @@ Feel is not an event log — it's **what the model carries away**: a feeling, an
 | `migrate_to_domains.py` | 迁移平铺文件到域子目录 / Migrate flat files to domain subdirs |
 | `reclassify_domains.py` | 基于关键词重分类 / Reclassify by keywords |
 | `reclassify_api.py` | 用 API 重打标未分类桶 / Re-tag uncategorized buckets via API |
+| `scripts/sync_to_supabase.py` | 与 Supabase memories 表双向同步，默认 dry-run / Bidirectional sync with Supabase memories table; dry-run by default |
 | `test_tools.py` | MCP 工具集成测试（8 项） / MCP tool integration tests (8 tests) |
 | `test_smoke.py` | 冒烟测试 / Smoke test |
+
+### Supabase 双向同步 / Supabase Bidirectional Sync
+
+同步脚本默认只预演，不写本地文件，也不上推 Supabase：
+
+```bash
+SUPABASE_SERVICE_KEY=xxx python scripts/sync_to_supabase.py
+```
+
+确认计划后再执行：
+
+```bash
+SUPABASE_SERVICE_KEY=xxx python scripts/sync_to_supabase.py --apply
+```
+
+C 端写入 Supabase 时，记录必须带稳定唯一 `id`，并把 `source` 写成 `chatgpt`。Ombre 本地已有的记录会优先写回原文件路径，新记录会写成 `类型/主题/标题_id.md`。
+
+最小记录形态：
+
+```json
+{
+  "id": "stable-id",
+  "title": "记忆标题",
+  "type": "dynamic",
+  "domain": ["数字"],
+  "tags": [],
+  "content": "记忆正文",
+  "source": "chatgpt",
+  "created": "2026-05-04T08:00:00+00:00",
+  "last_active": "2026-05-04T08:00:00+00:00",
+  "synced_at": "2026-05-04T08:00:00+00:00"
+}
+```
 
 ## 部署 / Deploy
 
