@@ -207,6 +207,82 @@ def test_gateway_requires_session_id(monkeypatch, test_config, bucket_mgr):
     assert "X-Ombre-Session-Id" in response.text
 
 
+def test_gateway_accepts_anthropic_messages(monkeypatch, test_config, bucket_mgr):
+    app, _, state_store, captured = _build_service(
+        monkeypatch,
+        _gateway_config(test_config, upstream_default_model="qwen3.5-plus"),
+        bucket_mgr,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/messages",
+            headers={
+                "x-api-key": "gateway-secret",
+                "anthropic-version": "2023-06-01",
+                "X-Ombre-Session-Id": "sess-anthropic",
+            },
+            json={
+                "model": "qwen3.5-plus",
+                "system": "你是一个自然聊天助手。",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "今天怎么样？"}],
+                    }
+                ],
+                "max_tokens": 512,
+                "temperature": 0.3,
+                "stop_sequences": ["END"],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["type"] == "message"
+    assert body["role"] == "assistant"
+    assert body["model"] == "qwen3.5-plus"
+    assert body["content"] == [{"type": "text", "text": "ok"}]
+    assert body["stop_reason"] == "end_turn"
+    assert body["usage"] == {"input_tokens": 0, "output_tokens": 0}
+
+    forwarded = captured[0]["json"]
+    assert forwarded["model"] == "qwen3.5-plus"
+    assert forwarded["max_tokens"] == 512
+    assert forwarded["temperature"] == 0.3
+    assert forwarded["stop"] == ["END"]
+    assert forwarded["stream"] is False
+    assert forwarded["messages"][0] == {"role": "system", "content": "你是一个自然聊天助手。"}
+    assert forwarded["messages"][1]["role"] == "system"
+    assert "Current Inner State" in forwarded["messages"][1]["content"]
+    assert forwarded["messages"][2] == {"role": "user", "content": "今天怎么样？"}
+    assert state_store.get_recent_bucket_ids("sess-anthropic", 5) == set()
+
+
+def test_gateway_rejects_anthropic_streaming(monkeypatch, test_config, bucket_mgr):
+    app, _, _, captured = _build_service(monkeypatch, _gateway_config(test_config), bucket_mgr)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/messages",
+            headers={
+                "x-api-key": "gateway-secret",
+                "X-Ombre-Session-Id": "sess-anthropic",
+            },
+            json={
+                "model": "qwen3.5-plus",
+                "messages": [{"role": "user", "content": "你好"}],
+                "max_tokens": 128,
+                "stream": True,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["type"] == "error"
+    assert "stream=true" in response.json()["error"]["message"]
+    assert captured == []
+
+
 def test_gateway_streams_when_client_requires_stream(monkeypatch, test_config, bucket_mgr):
     monkeypatch.setenv("OMBRE_GATEWAY_TOKEN", "gateway-secret")
     monkeypatch.setenv("OMBRE_GATEWAY_UPSTREAM_API_KEY", "upstream-secret")

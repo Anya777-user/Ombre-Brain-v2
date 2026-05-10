@@ -14,7 +14,7 @@ A long-term emotional memory system for Claude. Tags memories using Russell's va
 
 基于原版新增/强化的部分：
 
-- 【二次开发】**OpenAI-compatible Gateway**：新增 `/v1/chat/completions`、`/v1/models`、`/health`，普通聊天客户端也能走 Ombre 记忆注入链路。
+- 【二次开发】**OpenAI / Anthropic-compatible Gateway**：新增 `/v1/chat/completions`、`/v1/messages`、`/v1/models`、`/health`，普通聊天客户端也能走 Ombre 记忆注入链路。
 - 【二次开发】**自动记忆注入**：每轮请求由 Gateway 先召回 `Core Memory / Recent Context / Recalled Memory`，再拼入隐藏 system message 转发给上游模型。
 - 【二次开发】**Persona State Engine**：新增 `persona_state.db`，按全局人格、关系状态、会话心情和回复姿态维护当前状态，并通过 `X-Ombre-Session-Id` 让多个客户端窗口共享连续状态。
 - 【二次开发】**召回冷却与短期去重**：新增 `gateway_state.db`，记录每个 session 最近注入过的 bucket，配合 `skip_recent_rounds / cooldown_hours / cooldown_floor` 降低同一条记忆反复贴脸的概率。
@@ -276,10 +276,11 @@ Ombre Brain gives it persistent memory — not cold key-value storage, but a sys
 python gateway.py
 ```
 
-它暴露三个接口：
+它暴露四个接口：
 - `GET /health`
 - `GET /v1/models`
 - `POST /v1/chat/completions`
+- `POST /v1/messages`（Anthropic Messages 形状，当前支持非流式文本）
 
 这个网关会在转发到上游模型前自动注入四段上下文：
 - `Current Inner State`：人格、情绪、关系状态和回复姿态
@@ -294,8 +295,10 @@ v1 已实现的召回约束：
 
 请求要求：
 - 认证头：`Authorization: Bearer <OMBRE_GATEWAY_TOKEN>`
+- Anthropic 客户端也可以用：`x-api-key: <OMBRE_GATEWAY_TOKEN>`
 - 会话头：`X-Ombre-Session-Id`
 - 支持非流式和 OpenAI-compatible SSE 流式请求；流式响应会在上游完整结束后写入本轮注入历史
+- `/v1/messages` 当前支持非流式文本消息，会在 Gateway 内部转换为 OpenAI-compatible 请求再转发上游
 - 透传 OpenAI-compatible 工具调用字段，包括 `tools`、`tool_choice`、`parallel_tool_calls`、消息里的 `tool_calls` 和 `tool` 结果消息
 - `GET /v1/models` 会返回 Gateway 聚合后的模型列表；单上游模式读 `gateway.upstream_models`，多上游模式读 `gateway.upstreams[*].models`
 
@@ -396,7 +399,7 @@ Ombre Gateway
 | 标记 | 能力 | 入口/文件 |
 | --- | --- | --- |
 | 原版能力 | MCP 记忆工具、Obsidian Markdown bucket、遗忘曲线、脱水压缩、Dashboard | `server.py`、`bucket_manager.py`、`dehydrator.py`、`decay_engine.py` |
-| 【二次开发】 | OpenAI-compatible Gateway，请求前自动召回并注入记忆 | `gateway.py` |
+| 【二次开发】 | OpenAI / Anthropic-compatible Gateway，请求前自动召回并注入记忆 | `gateway.py`、`/v1/chat/completions`、`/v1/messages` |
 | 【二次开发】 | 每个 session 的注入历史、冷却、最近轮次跳过 | `gateway_state.py` |
 | 【二次开发】 | Persona State，全局人格 + 关系 + 会话心情 + 回复姿态 | `persona_engine.py` |
 | 【二次开发】 | 单上游/多上游模型列表与路由 | `gateway.upstreams`、`/v1/models` |
@@ -406,7 +409,7 @@ Ombre Gateway
 #### 每轮聊天的内部流程
 
 ```text
-1. 客户端发 POST /v1/chat/completions
+1. 客户端发 POST /v1/chat/completions 或 /v1/messages
    ↓
 2. Gateway 校验 Authorization: Bearer <OMBRE_GATEWAY_TOKEN>
    ↓
@@ -746,6 +749,24 @@ curl -i http://你的VPS_IP或域名:18002/v1/chat/completions \
     "messages": [
       {"role": "user", "content": "今天我们做到哪里了？"}
     ]
+  }'
+```
+
+测试 Anthropic Messages 入口：
+
+```bash
+curl -i http://你的VPS_IP或域名:18002/v1/messages \
+  -H "x-api-key: <OMBRE_GATEWAY_TOKEN>" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "X-Ombre-Session-Id: xiaoyu-main" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.5-plus",
+    "system": "你是一个自然聊天助手。",
+    "messages": [
+      {"role": "user", "content": "今天我们做到哪里了？"}
+    ],
+    "max_tokens": 512
   }'
 ```
 

@@ -202,6 +202,50 @@ class GatewayService:
 
         return self._proxy_response(upstream_response)
 
+    async def handle_anthropic_messages(self, request: Request) -> Response:
+        auth_result = self._authorize_anthropic_request(request)
+        if auth_result is not None:
+            return auth_result
+
+        session_id = (request.headers.get("X-Ombre-Session-Id") or "").strip()
+        if not session_id:
+            return self._anthropic_error("X-Ombre-Session-Id is required", status_code=400)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return self._anthropic_error("Request body must be valid JSON", status_code=400)
+
+        if not isinstance(payload, dict):
+            return self._anthropic_error("Request body must be a JSON object", status_code=400)
+
+        try:
+            openai_payload = self._anthropic_request_to_openai(payload)
+        except ValueError as exc:
+            return self._anthropic_error(str(exc), status_code=400)
+
+        logger.info(
+            "Gateway incoming Anthropic messages | session=%s model=%s messages=%s",
+            session_id,
+            openai_payload.get("model") or self.upstream_default_model,
+            self._summarize_messages_for_debug(openai_payload.get("messages")),
+        )
+
+        try:
+            forward_payload, recalled_ids = await self.prepare_payload(openai_payload, session_id)
+        except ValueError as exc:
+            return self._anthropic_error(str(exc), status_code=400)
+        except RuntimeError as exc:
+            return self._anthropic_error(str(exc), status_code=503, error_type="server_error")
+
+        upstream_response = await self._forward_upstream(forward_payload)
+        if 200 <= upstream_response.status_code < 300:
+            self._capture_reasoning_from_response(session_id, upstream_response)
+            await self._record_successful_round(session_id, recalled_ids)
+            return self._openai_response_to_anthropic(upstream_response, forward_payload["model"])
+
+        return self._proxy_anthropic_error_response(upstream_response)
+
     async def handle_models(self, request: Request) -> Response:
         auth_result = self._authorize(request.headers.get("Authorization", ""))
         if auth_result is not None:
@@ -277,6 +321,34 @@ class GatewayService:
                 {"error": {"message": "Invalid gateway token", "type": "authentication_error"}},
                 status_code=401,
             )
+        return None
+
+    def _authorize_anthropic_request(self, request: Request) -> JSONResponse | None:
+        if not self.gateway_token:
+            return self._anthropic_error(
+                "Gateway token is not configured",
+                status_code=503,
+                error_type="server_error",
+            )
+
+        auth_header = request.headers.get("Authorization", "")
+        scheme, _, bearer_token = auth_header.partition(" ")
+        api_key = (request.headers.get("x-api-key") or "").strip()
+        token = bearer_token.strip() if scheme.lower() == "bearer" else api_key
+        if not token:
+            return self._anthropic_error(
+                "Authorization: Bearer token or x-api-key is required",
+                status_code=401,
+                error_type="authentication_error",
+            )
+
+        if not secrets.compare_digest(token, self.gateway_token):
+            return self._anthropic_error(
+                "Invalid gateway token",
+                status_code=401,
+                error_type="authentication_error",
+            )
+
         return None
 
     async def _forward_upstream(self, payload: dict) -> httpx.Response:
@@ -370,6 +442,158 @@ class GatewayService:
                 status_code=upstream_response.status_code,
                 media_type=content_type,
             )
+
+    def _anthropic_request_to_openai(self, payload: dict) -> dict:
+        if payload.get("stream") is True:
+            raise ValueError("stream=true is not supported by /v1/messages yet")
+        if payload.get("tools") or payload.get("tool_choice"):
+            raise ValueError("Anthropic tool use is not supported by /v1/messages yet")
+
+        messages = payload.get("messages")
+        if not isinstance(messages, list) or not messages:
+            raise ValueError("messages must be a non-empty list")
+
+        openai_messages: list[dict[str, str]] = []
+        system_text = self._anthropic_content_to_text(payload.get("system"), "system").strip()
+        if system_text:
+            openai_messages.append({"role": "system", "content": system_text})
+
+        for index, message in enumerate(messages):
+            if not isinstance(message, dict):
+                raise ValueError(f"messages[{index}] must be an object")
+            role = str(message.get("role") or "").strip()
+            if role not in {"user", "assistant", "system"}:
+                raise ValueError(f"messages[{index}].role must be user, assistant, or system")
+            content = self._anthropic_content_to_text(
+                message.get("content"),
+                f"messages[{index}].content",
+            )
+            openai_messages.append({"role": role, "content": content})
+
+        openai_payload: dict[str, Any] = {
+            "model": payload.get("model"),
+            "messages": openai_messages,
+            "stream": False,
+        }
+
+        passthrough_fields = ("max_tokens", "temperature", "top_p")
+        for field in passthrough_fields:
+            if field in payload:
+                openai_payload[field] = payload[field]
+
+        if "stop_sequences" in payload:
+            openai_payload["stop"] = payload["stop_sequences"]
+        elif "stop" in payload:
+            openai_payload["stop"] = payload["stop"]
+
+        return openai_payload
+
+    def _anthropic_content_to_text(self, content: Any, field_name: str) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for index, block in enumerate(content):
+                if isinstance(block, str):
+                    parts.append(block)
+                    continue
+                if not isinstance(block, dict):
+                    raise ValueError(f"{field_name}[{index}] must be a text block")
+                block_type = block.get("type")
+                if block_type != "text":
+                    raise ValueError(f"{field_name}[{index}] only supports text blocks")
+                parts.append(str(block.get("text") or ""))
+            return "\n".join(part for part in parts if part)
+        raise ValueError(f"{field_name} must be a string or text block list")
+
+    def _openai_response_to_anthropic(self, upstream_response: httpx.Response, requested_model: str) -> JSONResponse:
+        try:
+            body = upstream_response.json()
+        except ValueError:
+            return self._anthropic_error(
+                "Upstream response was not valid JSON",
+                status_code=502,
+                error_type="api_error",
+            )
+
+        choices = body.get("choices")
+        choice = choices[0] if isinstance(choices, list) and choices else {}
+        message = choice.get("message") if isinstance(choice, dict) else {}
+        if not isinstance(message, dict):
+            message = {}
+
+        text = self._coerce_message_text(message.get("content"))
+        raw_id = str(body.get("id") or "ombre")
+        response_id = raw_id if raw_id.startswith("msg_") else f"msg_{raw_id}"
+        finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+        usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+
+        return JSONResponse(
+            {
+                "id": response_id,
+                "type": "message",
+                "role": "assistant",
+                "model": body.get("model") or requested_model,
+                "content": [{"type": "text", "text": text}] if text else [],
+                "stop_reason": self._openai_finish_reason_to_anthropic(finish_reason),
+                "stop_sequence": None,
+                "usage": {
+                    "input_tokens": int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0),
+                    "output_tokens": int(usage.get("output_tokens") or usage.get("completion_tokens") or 0),
+                },
+            },
+            status_code=upstream_response.status_code,
+        )
+
+    def _openai_finish_reason_to_anthropic(self, finish_reason: Any) -> str:
+        mapping = {
+            "stop": "end_turn",
+            "length": "max_tokens",
+            "tool_calls": "tool_use",
+            "function_call": "tool_use",
+            "content_filter": "stop_sequence",
+        }
+        return mapping.get(str(finish_reason or ""), "end_turn")
+
+    def _proxy_anthropic_error_response(self, upstream_response: httpx.Response) -> JSONResponse:
+        message = upstream_response.text or "Upstream request failed"
+        error_type = "api_error"
+        try:
+            body = upstream_response.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict):
+            error = body.get("error")
+            if isinstance(error, dict):
+                message = str(error.get("message") or message)
+                error_type = str(error.get("type") or error_type)
+            elif body.get("message"):
+                message = str(body["message"])
+        return self._anthropic_error(
+            message,
+            status_code=upstream_response.status_code,
+            error_type=error_type,
+        )
+
+    def _anthropic_error(
+        self,
+        message: str,
+        *,
+        status_code: int,
+        error_type: str = "invalid_request_error",
+    ) -> JSONResponse:
+        return JSONResponse(
+            {
+                "type": "error",
+                "error": {
+                    "type": error_type,
+                    "message": message,
+                },
+            },
+            status_code=status_code,
+        )
 
     def _extract_last_user_query(self, messages: list[dict[str, Any]]) -> str:
         for message in reversed(messages):
@@ -1074,6 +1298,9 @@ def create_gateway_app(
     async def chat_completions(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_chat(request)
 
+    async def anthropic_messages(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_anthropic_messages(request)
+
     async def models(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_models(request)
 
@@ -1083,6 +1310,7 @@ def create_gateway_app(
             Route("/health", health, methods=["GET"]),
             Route("/v1/models", models, methods=["GET"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
+            Route("/v1/messages", anthropic_messages, methods=["POST"]),
         ],
         lifespan=lifespan,
     )
