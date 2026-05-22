@@ -428,6 +428,57 @@ class BucketManager:
         logger.info(f"Added bucket comment / 已追加年轮: {bucket_id}#{entry['id']}")
         return entry
 
+    async def delete_comment(
+        self,
+        bucket_id: str,
+        comment_id: str,
+        *,
+        allowed_author: str | None = None,
+        allowed_source: str | None = None,
+    ) -> dict:
+        file_path = self._find_bucket_file(bucket_id)
+        if not file_path or not comment_id:
+            return {"status": "not_found"}
+
+        try:
+            post = frontmatter.load(file_path)
+        except Exception as e:
+            logger.warning(f"Failed to load bucket for comment delete / 加载评论删除目标失败: {file_path}: {e}")
+            return {"status": "not_found"}
+
+        comments = post.get("comments", [])
+        if not isinstance(comments, list):
+            return {"status": "not_found"}
+
+        kept = []
+        target = None
+        for comment in comments:
+            if isinstance(comment, dict) and str(comment.get("id") or "") == str(comment_id):
+                target = comment
+            else:
+                kept.append(comment)
+
+        if target is None:
+            return {"status": "not_found"}
+        if allowed_author is not None and target.get("author") != allowed_author:
+            return {"status": "forbidden", "comment": target}
+        if allowed_source is not None and target.get("source") != allowed_source:
+            return {"status": "forbidden", "comment": target}
+
+        post["comments"] = kept
+        post["comment_count"] = len(kept)
+        post["updated_at"] = now_iso()
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(frontmatter.dumps(post))
+        except OSError as e:
+            logger.error(f"Failed to delete bucket comment / 删除桶评论失败: {file_path}: {e}")
+            return {"status": "failed", "comment": target}
+
+        logger.info(f"Deleted bucket comment / 已删除年轮: {bucket_id}#{comment_id}")
+        return {"status": "deleted", "comment": target}
+
     # ---------------------------------------------------------
     # Wikilink injection — DISABLED
     # 自动添加 Obsidian 双链 — 已禁用

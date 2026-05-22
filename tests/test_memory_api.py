@@ -39,6 +39,11 @@ class DummyDehydrator:
         return content[:120]
 
 
+class EchoDehydrator:
+    async def dehydrate(self, content: str, metadata: dict | None = None) -> str:
+        return content
+
+
 class DummyRequest:
     def __init__(self, body=None, headers=None, cookies=None, path_params=None):
         self._body = body
@@ -98,8 +103,8 @@ async def test_create_memory_api_writes_chatgpt_source(monkeypatch, bucket_mgr):
     assert bucket["metadata"]["source"] == "chatgpt"
     assert bucket["metadata"]["resolved"] is True
     assert bucket["metadata"]["digested"] is True
-    assert bucket["metadata"]["created"].endswith("+00:00")
-    assert bucket["metadata"]["updated_at"].endswith("+00:00")
+    assert bucket["metadata"]["created"].endswith("+08:00")
+    assert bucket["metadata"]["updated_at"].endswith("+08:00")
 
 
 @pytest.mark.asyncio
@@ -195,6 +200,118 @@ async def test_dashboard_comment_api_writes_rain_author(monkeypatch, bucket_mgr,
     assert comment["source"] == "dashboard"
     assert comment["content"] == "这句是小雨从前端补的。"
     assert embedding_engine.calls[0][0] == bucket_id
+
+
+@pytest.mark.asyncio
+async def test_dashboard_content_api_edits_body_preserves_comments(monkeypatch, bucket_mgr, decay_eng):
+    import server
+
+    bucket_id = await bucket_mgr.create(
+        content="旧正文。",
+        name="正文编辑",
+        domain=["恋爱"],
+        last_active="2026-05-04T08:00:00+00:00",
+    )
+    comment = await bucket_mgr.add_comment(
+        bucket_id,
+        "正文下面的小雨年轮。",
+        author="Rain",
+        source="dashboard",
+        touch=False,
+    )
+    before = await bucket_mgr.get(bucket_id)
+
+    monkeypatch.setattr(server, "bucket_mgr", bucket_mgr)
+    monkeypatch.setattr(server, "decay_engine", decay_eng)
+    monkeypatch.setattr(server, "_require_dashboard_auth", lambda request: None)
+    embedding_engine = CapturingEmbeddingEngine()
+    monkeypatch.setattr(server, "embedding_engine", embedding_engine)
+
+    response = await server.api_bucket_update(
+        DummyRequest(
+            {"content": "新正文，只替换正文。"},
+            path_params={"bucket_id": bucket_id},
+        )
+    )
+    bucket = await bucket_mgr.get(bucket_id)
+
+    assert response.status_code == 200
+    assert bucket["content"] == "新正文，只替换正文。"
+    assert bucket["metadata"]["comments"][0]["id"] == comment["id"]
+    assert bucket["metadata"]["last_active"] == before["metadata"]["last_active"]
+    assert "新正文" in embedding_engine.calls[0][1]
+    assert "正文下面的小雨年轮" in embedding_engine.calls[0][1]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_comment_delete_only_allows_rain_dashboard_comments(monkeypatch, bucket_mgr, decay_eng):
+    import server
+
+    bucket_id = await bucket_mgr.create(
+        content="源记忆。",
+        name="年轮删除",
+        domain=["恋爱"],
+    )
+    rain = await bucket_mgr.add_comment(
+        bucket_id,
+        "小雨从前端写的年轮。",
+        author="Rain",
+        source="dashboard",
+        touch=False,
+    )
+    haven = await bucket_mgr.add_comment(
+        bucket_id,
+        "Haven 写的年轮。",
+        author="Haven",
+        source="hold(feel=True)",
+        touch=False,
+    )
+    monkeypatch.setattr(server, "bucket_mgr", bucket_mgr)
+    monkeypatch.setattr(server, "decay_engine", decay_eng)
+    monkeypatch.setattr(server, "_require_dashboard_auth", lambda request: None)
+    embedding_engine = CapturingEmbeddingEngine()
+    monkeypatch.setattr(server, "embedding_engine", embedding_engine)
+
+    forbidden = await server.api_bucket_comment_delete(
+        DummyRequest(path_params={"bucket_id": bucket_id, "comment_id": haven["id"]})
+    )
+    deleted = await server.api_bucket_comment_delete(
+        DummyRequest(path_params={"bucket_id": bucket_id, "comment_id": rain["id"]})
+    )
+    bucket = await bucket_mgr.get(bucket_id)
+    remaining_ids = [comment["id"] for comment in bucket["metadata"]["comments"]]
+
+    assert forbidden.status_code == 403
+    assert deleted.status_code == 200
+    assert remaining_ids == [haven["id"]]
+    assert embedding_engine.calls[-1][0] == bucket_id
+
+
+@pytest.mark.asyncio
+async def test_breath_summary_includes_bucket_comments(monkeypatch, bucket_mgr, decay_eng):
+    import server
+
+    bucket_id = await bucket_mgr.create(
+        content="小雨把这段旧事留下。",
+        name="带年轮浮现",
+        domain=["恋爱"],
+    )
+    await bucket_mgr.add_comment(
+        bucket_id,
+        "后来再看，这里多了一圈新的年轮。",
+        author="Rain",
+        source="dashboard",
+        touch=False,
+    )
+    monkeypatch.setattr(server, "bucket_mgr", bucket_mgr)
+    monkeypatch.setattr(server, "decay_engine", decay_eng)
+    monkeypatch.setattr(server, "dehydrator", EchoDehydrator())
+
+    result = await server.breath(max_results=1, include_core=False, include_related=False)
+
+    assert f"[bucket_id:{bucket_id}]" in result
+    assert "小雨把这段旧事留下" in result
+    assert "后来再看，这里多了一圈新的年轮" in result
 
 
 @pytest.mark.asyncio

@@ -1922,13 +1922,25 @@ class GatewayService:
                 break
         return "\n".join(parts)
 
+    def _bucket_text_with_comments(self, bucket: dict) -> str:
+        meta = bucket.get("metadata", {})
+        comments = meta.get("comments", [])
+        comment_text = ""
+        if isinstance(comments, list):
+            comment_text = "\n".join(
+                strip_wikilinks(str(comment.get("content", "")))
+                for comment in comments
+                if isinstance(comment, dict)
+            )
+        return f"{strip_wikilinks(bucket.get('content', '')).strip()}\n{comment_text}".strip()
+
     async def _summarize_bucket(self, bucket: dict) -> str:
         metadata = {
             key: value
             for key, value in bucket.get("metadata", {}).items()
             if key != "tags"
         }
-        cleaned = strip_wikilinks(bucket.get("content", ""))
+        cleaned = self._bucket_text_with_comments(bucket)
         try:
             return await self.dehydrator.dehydrate(cleaned, metadata)
         except Exception as exc:

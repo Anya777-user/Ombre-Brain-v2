@@ -298,6 +298,70 @@
     overflow-y: auto;
     box-shadow: inset 3px 3px 6px var(--shadow-dark-subtle), inset -3px -3px 6px var(--shadow-light);
   }
+  .detail-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .detail-title-row h2 {
+    margin-right: auto;
+  }
+  .detail-edit-button,
+  .content-edit-actions button,
+  .comment-send-button,
+  .comment-delete-button {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--accent);
+    cursor: pointer;
+    transition: all 0.18s ease;
+  }
+  .detail-edit-button {
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+  .detail-edit-button:hover,
+  .content-edit-actions button:hover,
+  .comment-send-button:hover,
+  .comment-delete-button:hover {
+    color: var(--accent-dark);
+    box-shadow: 3px 3px 8px var(--shadow-dark-subtle), -3px -3px 8px var(--shadow-light);
+  }
+  .content-edit-form {
+    margin-top: 12px;
+  }
+  .content-edit-form textarea {
+    width: 100%;
+    min-height: 220px;
+    resize: vertical;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-solid);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.8;
+    box-sizing: border-box;
+  }
+  .content-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .content-edit-actions button {
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+  .content-edit-actions .secondary {
+    color: var(--text-light);
+  }
+  .hidden {
+    display: none !important;
+  }
   .detail-comments {
     margin-top: 18px;
   }
@@ -308,20 +372,25 @@
     margin: 0 0 10px;
   }
   .comment-item {
+    position: relative;
     padding: 12px 14px;
     margin-bottom: 10px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 8px;
     background: var(--surface);
     font-size: 12px;
     line-height: 1.7;
   }
-  .comment-meta {
-    color: var(--text-light);
-    margin-bottom: 6px;
+  .comment-body {
+    white-space: pre-wrap;
+    padding-right: 22px;
   }
   .comment-form {
     margin-top: 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 8px;
+    align-items: end;
   }
   .comment-form textarea {
     width: 100%;
@@ -329,15 +398,31 @@
     resize: vertical;
     padding: 10px 12px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 8px;
     background: var(--surface-solid);
     color: var(--text);
     font-size: 13px;
     line-height: 1.6;
     box-sizing: border-box;
   }
-  .comment-form button {
-    margin-top: 8px;
+  .comment-send-button {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    font-size: 16px;
+    line-height: 1;
+  }
+  .comment-delete-button {
+    position: absolute;
+    right: 8px;
+    top: 8px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    color: var(--text-light);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
   }
 
   .config-section {
@@ -1351,21 +1436,23 @@ async function showDetail(id) {
     var comments = Array.isArray(meta.comments) ? meta.comments : [];
     var commentsHtml = comments.length
       ? '<div class="detail-comments"><h3>年轮</h3>' + comments.map(function(c) {
-          var va = c.valence != null ? ' · V' + Number(c.valence).toFixed(2) : '';
-          var ar = c.arousal != null ? ' · A' + Number(c.arousal).toFixed(2) : '';
+          var canDelete = c && c.id && c.author === 'Rain' && c.source === 'dashboard';
           return '<div class="comment-item">' +
-            '<div class="comment-meta">' + esc(c.created || '—') + ' · ' + esc(c.author || '—') + ' · ' + esc(c.kind || 'comment') + va + ar + '</div>' +
-            '<div>' + esc(c.content || '') + '</div>' +
+            (canDelete ? '<button type="button" class="comment-delete-button" title="删除" aria-label="删除" onclick="deleteBucketComment(\'' + id + '\', \'' + esc(c.id) + '\')">×</button>' : '') +
+            '<div class="comment-body">' + esc(c.content || '') + '</div>' +
           '</div>';
         }).join('') + '</div>'
       : '';
     var commentFormHtml =
       '<form class="comment-form" onsubmit="submitBucketComment(event, \'' + id + '\')">' +
-        '<textarea name="content" placeholder="写一圈新的年轮…"></textarea>' +
-        '<button type="submit" class="btn">写入年轮</button>' +
+        '<textarea name="content" placeholder="写一圈新的年轮…" onkeydown="handleCommentKeydown(event)"></textarea>' +
+        '<button type="submit" class="comment-send-button" title="发送" aria-label="发送">↵</button>' +
       '</form>';
     content.innerHTML =
-      '<h2>' + esc(meta.name || id) + '</h2>' +
+      '<div class="detail-title-row">' +
+        '<h2>' + esc(meta.name || id) + '</h2>' +
+        '<button type="button" class="detail-edit-button" onclick="startBucketContentEdit(\'' + id + '\')">编辑</button>' +
+      '</div>' +
       '<div class="detail-meta">' +
         '<div class="field"><label>ID</label>' + id + '</div>' +
         '<div class="field"><label>类型</label>' + (meta.type || 'dynamic') + '</div>' +
@@ -1387,12 +1474,76 @@ async function showDetail(id) {
         '<div class="field"><label>创建</label>' + (meta.created || '—') + '</div>' +
         '<div class="field"><label>最后活跃</label>' + (meta.last_active || '—') + '</div>' +
       '</div>' +
-      '<div class="detail-content">' + esc(b.content) + '</div>' +
+      '<div id="bucket-content-view" class="detail-content">' + esc(b.content || '') + '</div>' +
+      '<form id="bucket-content-edit" class="content-edit-form hidden" onsubmit="submitBucketContentEdit(event, \'' + id + '\')">' +
+        '<textarea name="content">' + esc(b.content || '') + '</textarea>' +
+        '<div class="content-edit-actions">' +
+          '<button type="button" class="secondary" onclick="cancelBucketContentEdit()">取消</button>' +
+          '<button type="submit">保存</button>' +
+        '</div>' +
+      '</form>' +
       commentsHtml +
       commentFormHtml;
   } catch (e) {
     content.innerHTML = '<div class="loading">加载失败: ' + e.message + '</div>';
   }
+}
+
+function startBucketContentEdit(bucketId) {
+  var view = document.getElementById('bucket-content-view');
+  var form = document.getElementById('bucket-content-edit');
+  if (!view || !form) return;
+  view.classList.add('hidden');
+  form.classList.remove('hidden');
+  var textarea = form.querySelector('textarea[name="content"]');
+  if (textarea) {
+    textarea.focus();
+    textarea.selectionStart = textarea.value.length;
+    textarea.selectionEnd = textarea.value.length;
+  }
+}
+
+function cancelBucketContentEdit() {
+  var view = document.getElementById('bucket-content-view');
+  var form = document.getElementById('bucket-content-edit');
+  if (!view || !form) return;
+  form.classList.add('hidden');
+  view.classList.remove('hidden');
+}
+
+async function submitBucketContentEdit(event, bucketId) {
+  event.preventDefault();
+  var form = event.target;
+  var textarea = form.querySelector('textarea[name="content"]');
+  var newContent = (textarea.value || '').trim();
+  if (!newContent) return;
+  var button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  button.textContent = '保存中…';
+  try {
+    var res = await authFetch(BASE + '/api/bucket/' + bucketId, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content: newContent})
+    });
+    if (!res) return;
+    if (!res.ok) {
+      var data = await res.json().catch(() => ({}));
+      throw new Error(data.error || '保存失败');
+    }
+    await showDetail(bucketId);
+    await loadBuckets();
+  } catch (e) {
+    alert('保存正文失败: ' + e.message);
+    button.disabled = false;
+    button.textContent = '保存';
+  }
+}
+
+function handleCommentKeydown(event) {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  event.target.form.requestSubmit();
 }
 
 async function submitBucketComment(event, bucketId) {
@@ -1403,7 +1554,7 @@ async function submitBucketComment(event, bucketId) {
   if (!content) return;
   var button = form.querySelector('button[type="submit"]');
   button.disabled = true;
-  button.textContent = '写入中…';
+  button.textContent = '…';
   try {
     var res = await authFetch(BASE + '/api/bucket/' + bucketId + '/comments', {
       method: 'POST',
@@ -1420,7 +1571,24 @@ async function submitBucketComment(event, bucketId) {
   } catch (e) {
     alert('写入年轮失败: ' + e.message);
     button.disabled = false;
-    button.textContent = '写入年轮';
+    button.textContent = '↵';
+  }
+}
+
+async function deleteBucketComment(bucketId, commentId) {
+  try {
+    var res = await authFetch(BASE + '/api/bucket/' + bucketId + '/comments/' + commentId, {
+      method: 'DELETE'
+    });
+    if (!res) return;
+    if (!res.ok) {
+      var data = await res.json().catch(() => ({}));
+      throw new Error(data.error || '删除失败');
+    }
+    await showDetail(bucketId);
+    await loadBuckets();
+  } catch (e) {
+    alert('删除年轮失败: ' + e.message);
   }
 }
 

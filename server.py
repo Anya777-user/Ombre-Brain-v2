@@ -67,7 +67,7 @@ from import_memory import ImportEngine
 from memory_edges import MemoryEdgeStore
 from persona_engine import PersonaStateEngine
 from reflection_engine import ReflectionEngine
-from utils import load_config, setup_logging, strip_wikilinks, count_tokens_approx
+from utils import load_config, setup_logging, strip_wikilinks, count_tokens_approx, now_iso
 
 # --- Load config & init logging / 加载配置 & 初始化日志 ---
 config = load_config()
@@ -313,8 +313,8 @@ class OmbreChatGptOAuthMiddleware:
         return host in self.protected_hosts
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def _current_time_iso() -> str:
+    return now_iso()
 
 
 _dashboard_sessions: dict[str, float] = {}
@@ -781,7 +781,7 @@ async def breath_hook(request):
         parts = []
         token_budget = 10000
         for b in pinned:
-            summary = await dehydrator.dehydrate(strip_wikilinks(b["content"]), {k: v for k, v in b["metadata"].items() if k != "tags"})
+            summary = await dehydrator.dehydrate(_bucket_text_for_embedding(b), {k: v for k, v in b["metadata"].items() if k != "tags"})
             parts.append(f"📌 [核心准则] {summary}")
             token_budget -= count_tokens_approx(summary)
 
@@ -798,7 +798,7 @@ async def breath_hook(request):
         for b in candidates:
             if token_budget <= 0:
                 break
-            summary = await dehydrator.dehydrate(strip_wikilinks(b["content"]), {k: v for k, v in b["metadata"].items() if k != "tags"})
+            summary = await dehydrator.dehydrate(_bucket_text_for_embedding(b), {k: v for k, v in b["metadata"].items() if k != "tags"})
             summary_tokens = count_tokens_approx(summary)
             if summary_tokens > token_budget:
                 break
@@ -841,7 +841,7 @@ async def dream_hook(request):
             parts.append(
                 f"{meta.get('name', b['id'])} {resolved_tag} "
                 f"V{meta.get('valence', 0.5):.1f}/A{meta.get('arousal', 0.3):.1f}\n"
-                f"{strip_wikilinks(b['content'][:200])}"
+                f"{_bucket_text_for_embedding(b)[:200]}"
             )
 
         return PlainTextResponse("[Ombre Brain - Dreaming]\n" + "\n---\n".join(parts))
@@ -874,7 +874,7 @@ def _format_readonly_related_memory(bucket: dict) -> str:
     if meta.get("digested"):
         labels.append("已消化")
     state = f" ({', '.join(labels)})" if labels else ""
-    preview = strip_wikilinks(bucket.get("content", "")).replace("\n", " ").strip()
+    preview = _bucket_text_for_embedding(bucket).replace("\n", " ").strip()
     if len(preview) > 220:
         preview = preview[:220].rstrip() + "..."
     return (
@@ -890,7 +890,7 @@ def _bucket_text_for_embedding(bucket: dict) -> str:
     comment_text = ""
     if isinstance(comments, list):
         comment_text = "\n".join(
-            str(comment.get("content", ""))
+            strip_wikilinks(str(comment.get("content", "")))
             for comment in comments
             if isinstance(comment, dict)
         )
@@ -1086,7 +1086,7 @@ async def _build_mcp_related_memory_block(
         try:
             clean_meta = {k: v for k, v in meta.items() if k != "tags"}
             summary = await dehydrator.dehydrate(
-                strip_wikilinks(target.get("content", "")),
+                _bucket_text_for_embedding(target),
                 clean_meta,
             )
             arrow = "<-" if edge.get("direction") == "incoming" else "->"
@@ -1251,7 +1251,7 @@ async def breath(
                 break
             try:
                 clean_meta = {k: v for k, v in b["metadata"].items() if k != "tags"}
-                summary = await dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
+                summary = await dehydrator.dehydrate(_bucket_text_for_embedding(b), clean_meta)
                 entry = f"📌 [核心准则] [bucket_id:{b['id']}] {summary}"
                 entry_tokens = count_tokens_approx(entry)
                 if entry_tokens > core_token_budget or entry_tokens > token_budget:
@@ -1280,7 +1280,7 @@ async def breath(
                 break
             try:
                 clean_meta = {k: v for k, v in b["metadata"].items() if k != "tags"}
-                summary = await dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
+                summary = await dehydrator.dehydrate(_bucket_text_for_embedding(b), clean_meta)
                 score = decay_engine.calculate_score(b["metadata"])
                 entry = f"[权重:{score:.2f}] [bucket_id:{b['id']}] {summary}"
                 entry_tokens = count_tokens_approx(entry)
@@ -1369,7 +1369,7 @@ async def breath(
                 original_v = float(clean_meta.get("valence", 0.5))
                 shift = (q_valence - 0.5) * 0.2  # ±0.1 max shift
                 clean_meta["valence"] = max(0.0, min(1.0, original_v + shift))
-            summary = await dehydrator.dehydrate(strip_wikilinks(bucket["content"]), clean_meta)
+            summary = await dehydrator.dehydrate(_bucket_text_for_embedding(bucket), clean_meta)
             if bucket.get("vector_match"):
                 entry = f"[语义关联] [bucket_id:{bucket['id']}] {summary}"
             else:
@@ -1421,7 +1421,7 @@ async def breath(
                     if drift_remaining <= 0:
                         break
                     clean_meta = {k: v for k, v in b["metadata"].items() if k != "tags"}
-                    summary = await dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
+                    summary = await dehydrator.dehydrate(_bucket_text_for_embedding(b), clean_meta)
                     dormant_days = _bucket_days_since_last_active(b["metadata"])
                     entry = f"[surface_type: resurface, dormant_days={dormant_days:.0f}]\n{summary}"
                     entry_tokens = count_tokens_approx(entry)
@@ -1506,7 +1506,7 @@ async def resurface(max_results: int = 1, include_archive: bool = True, max_toke
         entry = (
             f"[bucket_id:{bucket['id']}] {meta.get('name', bucket['id'])}{state_text} "
             f"久未触碰 {dormant_days:.0f} 天\n"
-            f"{strip_wikilinks(bucket.get('content', '')).strip()[:420]}"
+            f"{_bucket_text_for_embedding(bucket).strip()[:420]}"
         )
         tokens = count_tokens_approx(entry)
         if tokens > remaining and parts:
@@ -1639,6 +1639,53 @@ async def api_bucket_comment(request):
         "status": "commented",
         "id": bucket_id,
         "comment": entry,
+        "embedding_refreshed": embedding_refreshed,
+        "metadata": _bucket_read_payload(bucket)["metadata"] if bucket else {},
+    })
+
+
+@mcp.custom_route("/api/bucket/{bucket_id}/comments/{comment_id}", methods=["DELETE"])
+async def api_bucket_comment_delete(request):
+    """Delete a dashboard-authenticated Rain comment from a bucket."""
+    from starlette.responses import JSONResponse
+
+    err = _require_dashboard_auth(request)
+    if err:
+        return err
+
+    bucket_id = request.path_params["bucket_id"]
+    comment_id = request.path_params["comment_id"]
+    if not bucket_id or not MEMORY_ID_RE.fullmatch(bucket_id):
+        return JSONResponse({"error": "invalid bucket_id"}, status_code=400)
+    if not comment_id or not MEMORY_ID_RE.fullmatch(comment_id):
+        return JSONResponse({"error": "invalid comment_id"}, status_code=400)
+    if not await bucket_mgr.get(bucket_id):
+        return JSONResponse({"error": "not found", "id": bucket_id}, status_code=404)
+
+    result = await bucket_mgr.delete_comment(
+        bucket_id,
+        comment_id,
+        allowed_author="Rain",
+        allowed_source="dashboard",
+    )
+    if result.get("status") == "not_found":
+        return JSONResponse({"error": "comment not found"}, status_code=404)
+    if result.get("status") == "forbidden":
+        return JSONResponse({"error": "only Rain dashboard comments can be deleted"}, status_code=403)
+    if result.get("status") != "deleted":
+        return JSONResponse({"error": "delete failed"}, status_code=500)
+
+    embedding_refreshed = False
+    try:
+        embedding_refreshed = await _refresh_bucket_embedding(bucket_id)
+    except Exception as e:
+        logger.warning(f"Failed to refresh embedding after dashboard comment delete / 前端删除评论后刷新向量失败: {bucket_id}: {e}")
+
+    bucket = await bucket_mgr.get(bucket_id)
+    return JSONResponse({
+        "status": "deleted",
+        "id": bucket_id,
+        "comment_id": comment_id,
         "embedding_refreshed": embedding_refreshed,
         "metadata": _bucket_read_payload(bucket)["metadata"] if bucket else {},
     })
@@ -2117,7 +2164,7 @@ async def dream() -> str:
             f"主题:{domains} V{val:.1f}/A{aro:.1f} "
             f"创建:{created}\n"
             f"ID: {b['id']}\n"
-            f"{strip_wikilinks(b['content'][:500])}"
+            f"{_bucket_text_for_embedding(b)[:500]}"
         )
 
     header = (
@@ -2251,7 +2298,7 @@ async def api_create_memory(request):
     if bucket_type not in {"dynamic", "permanent", "feel"}:
         return JSONResponse({"error": "invalid type"}, status_code=400)
 
-    now = _utc_now_iso()
+    now = _current_time_iso()
     domain = _string_list(body.get("domain"), ["未分类"])
     tags = _string_list(body.get("tags"), [])
     importance = _int_between(body.get("importance"), 5)
@@ -2381,6 +2428,60 @@ async def api_bucket_detail(request):
     if not bucket:
         return JSONResponse({"error": "not found"}, status_code=404)
     return JSONResponse(_bucket_read_payload(bucket))
+
+
+@mcp.custom_route("/api/bucket/{bucket_id}", methods=["PATCH"])
+async def api_bucket_update(request):
+    """Update dashboard-editable bucket body fields."""
+    from starlette.responses import JSONResponse
+
+    err = _require_dashboard_auth(request)
+    if err:
+        return err
+
+    bucket_id = request.path_params["bucket_id"]
+    if not bucket_id or not MEMORY_ID_RE.fullmatch(bucket_id):
+        return JSONResponse({"error": "invalid bucket_id"}, status_code=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json body"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "json body must be an object"}, status_code=400)
+    if "content" not in body:
+        return JSONResponse({"error": "missing content"}, status_code=400)
+
+    content = str(body.get("content") or "").strip()
+    if not content:
+        return JSONResponse({"error": "empty content"}, status_code=400)
+
+    bucket = await bucket_mgr.get(bucket_id)
+    if not bucket:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    meta = bucket.get("metadata", {})
+    ok = await bucket_mgr.update(
+        bucket_id,
+        content=content,
+        last_active=meta.get("last_active") or meta.get("created"),
+    )
+    if not ok:
+        return JSONResponse({"error": "update failed"}, status_code=500)
+
+    embedding_refreshed = False
+    try:
+        embedding_refreshed = await _refresh_bucket_embedding(bucket_id)
+    except Exception as e:
+        logger.warning(f"Failed to refresh embedding after dashboard content edit / 前端正文编辑后刷新向量失败: {bucket_id}: {e}")
+
+    bucket = await bucket_mgr.get(bucket_id)
+    return JSONResponse({
+        "status": "updated",
+        "id": bucket_id,
+        "embedding_refreshed": embedding_refreshed,
+        **_bucket_read_payload(bucket),
+    })
 
 
 @mcp.custom_route("/api/search", methods=["GET"])

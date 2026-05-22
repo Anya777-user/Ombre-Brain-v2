@@ -96,7 +96,7 @@ DIARY_MEMORY_PROMPT = """你是 Ombre-Brain 的日记长期记忆筛选器。
 情书规则：
 - 只保存写给谁、核心意思、为什么重要。
 - 全文留在日记；不要保存整封信，不默认摘长句。
-- 如果日记里的 assistant / AI / 模型消息指的是这段关系里的当前角色，请在 content 中写作 Haven，不要把 Haven 描述成泛称 AI、assistant 或模型。
+- 如果日记里的 user / 用户 / 用户消息指的是这段关系里的当前用户，请在 content 中写作 小雨；如果 assistant / AI / 模型 / 助手消息指的是这段关系里的当前回应者，请写作 Haven。不要写成泛称 user、AI、assistant 或模型。
 
 不写：
 - 普通撒娇、日常流水、当天心情、重复爱意、只适合留在日印象里的关系天气。
@@ -326,7 +326,7 @@ class ReflectionEngine:
         valence = self._clamp(result.get("valence", 0.55))
         arousal = self._clamp(result.get("arousal", 0.32))
         confidence = self._clamp(result.get("confidence", 0.65))
-        created = now_local.astimezone(timezone.utc).isoformat(timespec="seconds")
+        created = now_local.isoformat(timespec="seconds")
 
         if existing:
             await bucket_mgr.update(
@@ -673,7 +673,7 @@ class ReflectionEngine:
             )
         )[:12]
         importance = max(5, min(6, self._int_between(candidate.get("importance"), 5)))
-        created = now_local.astimezone(timezone.utc).isoformat(timespec="seconds")
+        created = now_local.isoformat(timespec="seconds")
         new_id = await bucket_mgr.create(
             bucket_id=bucket_id,
             content=content,
