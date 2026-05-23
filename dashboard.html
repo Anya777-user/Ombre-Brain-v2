@@ -303,7 +303,6 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
-    position: relative;
   }
   .detail-title-row h2 {
     margin-right: auto;
@@ -318,8 +317,8 @@
   }
   .detail-edit-button {
     position: absolute;
-    top: -2px;
-    right: 0;
+    top: 12px;
+    right: 12px;
     width: 32px;
     height: 32px;
     padding: 0;
@@ -343,6 +342,14 @@
   .detail-edit-button:hover {
     color: var(--accent-dark);
     background: var(--accent-glow);
+  }
+  .bucket-content-block {
+    position: relative;
+    margin-top: 20px;
+  }
+  .bucket-content-block .detail-content {
+    margin-top: 0;
+    padding-right: 54px;
   }
   .content-edit-form {
     margin-top: 12px;
@@ -1876,7 +1883,6 @@ async function showDetail(id) {
     content.innerHTML =
       '<div class="detail-title-row">' +
         '<h2>' + esc(meta.name || id) + '</h2>' +
-        '<button type="button" class="detail-edit-button" onclick="startBucketContentEdit(\'' + id + '\')" aria-label="编辑正文" title="编辑正文">✎</button>' +
       '</div>' +
       '<div class="detail-meta">' +
         '<div class="field"><label>ID</label>' + id + '</div>' +
@@ -1899,14 +1905,17 @@ async function showDetail(id) {
         '<div class="field"><label>创建</label>' + (meta.created || '—') + '</div>' +
         '<div class="field"><label>最后活跃</label>' + (meta.last_active || '—') + '</div>' +
       '</div>' +
-      '<div id="bucket-content-view" class="detail-content">' + esc(b.content || '') + '</div>' +
-      '<form id="bucket-content-edit" class="content-edit-form hidden" onsubmit="submitBucketContentEdit(event, \'' + id + '\')">' +
-        '<textarea name="content">' + esc(b.content || '') + '</textarea>' +
-        '<div class="content-edit-actions">' +
-          '<button type="button" class="secondary" onclick="cancelBucketContentEdit()">取消</button>' +
-          '<button type="submit">保存</button>' +
-        '</div>' +
-      '</form>' +
+      '<div class="bucket-content-block">' +
+        '<button id="bucket-content-edit-button" type="button" class="detail-edit-button" onclick="startBucketContentEdit(\'' + id + '\')" aria-label="编辑正文" title="编辑正文">✎</button>' +
+        '<div id="bucket-content-view" class="detail-content">' + esc(b.content || '') + '</div>' +
+        '<form id="bucket-content-edit" class="content-edit-form hidden" onsubmit="submitBucketContentEdit(event, \'' + id + '\')">' +
+          '<textarea name="content">' + esc(b.content || '') + '</textarea>' +
+          '<div class="content-edit-actions">' +
+            '<button type="button" class="secondary" onclick="cancelBucketContentEdit()">取消</button>' +
+            '<button type="submit">保存</button>' +
+          '</div>' +
+        '</form>' +
+      '</div>' +
       commentsHtml +
       commentFormHtml;
   } catch (e) {
@@ -1917,9 +1926,11 @@ async function showDetail(id) {
 function startBucketContentEdit(bucketId) {
   var view = document.getElementById('bucket-content-view');
   var form = document.getElementById('bucket-content-edit');
+  var editButton = document.getElementById('bucket-content-edit-button');
   if (!view || !form) return;
   view.classList.add('hidden');
   form.classList.remove('hidden');
+  if (editButton) editButton.classList.add('hidden');
   var textarea = form.querySelector('textarea[name="content"]');
   if (textarea) {
     textarea.focus();
@@ -1931,9 +1942,11 @@ function startBucketContentEdit(bucketId) {
 function cancelBucketContentEdit() {
   var view = document.getElementById('bucket-content-view');
   var form = document.getElementById('bucket-content-edit');
+  var editButton = document.getElementById('bucket-content-edit-button');
   if (!view || !form) return;
   form.classList.add('hidden');
   view.classList.remove('hidden');
+  if (editButton) editButton.classList.remove('hidden');
 }
 
 async function submitBucketContentEdit(event, bucketId) {
