@@ -303,11 +303,11 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
+    position: relative;
   }
   .detail-title-row h2 {
     margin-right: auto;
   }
-  .detail-edit-button,
   .content-edit-actions button,
   .comment-delete-button {
     border: 1px solid var(--border);
@@ -317,15 +317,32 @@
     transition: all 0.18s ease;
   }
   .detail-edit-button {
-    padding: 7px 10px;
-    border-radius: 8px;
-    font-size: 12px;
+    position: absolute;
+    top: -2px;
+    right: 0;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.18s ease, background-color 0.18s ease;
   }
-  .detail-edit-button:hover,
   .content-edit-actions button:hover,
   .comment-delete-button:hover {
     color: var(--accent-dark);
     box-shadow: 3px 3px 8px var(--shadow-dark-subtle), -3px -3px 8px var(--shadow-light);
+  }
+  .detail-edit-button:hover {
+    color: var(--accent-dark);
+    background: var(--accent-glow);
   }
   .content-edit-form {
     margin-top: 12px;
@@ -1859,7 +1876,7 @@ async function showDetail(id) {
     content.innerHTML =
       '<div class="detail-title-row">' +
         '<h2>' + esc(meta.name || id) + '</h2>' +
-        '<button type="button" class="detail-edit-button" onclick="startBucketContentEdit(\'' + id + '\')">编辑</button>' +
+        '<button type="button" class="detail-edit-button" onclick="startBucketContentEdit(\'' + id + '\')" aria-label="编辑正文" title="编辑正文">✎</button>' +
       '</div>' +
       '<div class="detail-meta">' +
         '<div class="field"><label>ID</label>' + id + '</div>' +
