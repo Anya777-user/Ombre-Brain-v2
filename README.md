@@ -41,7 +41,7 @@
 | Relationship Weather | 日印象保存为 `type=feel`，Gateway 按间隔单独注入 | `reflection_engine.py` |
 | 年轮 comments | 将再次阅读某条记忆时的感受挂到源 bucket 的 `metadata.comments` 下；旧 feel 可迁移成源记忆年轮 | `bucket_manager.py`、`server.py`、`dashboard.html` |
 | whisper | 无源碎碎念/悄悄话独立保存为 `type=feel + whisper` 标签，可用 `breath(domain="whisper")` 单独读取 | `server.py` |
-| Dashboard 编辑 | 支持正文编辑、前端用户年轮写入/删除、日印象月历、情绪天气图、Persona 面板、网络图、手动 reflect | `dashboard.html`、`server.py` |
+| Dashboard 编辑 | 支持正文编辑、前端用户年轮写入/删除、日印象月历、Persona 面板、网络图、手动 reflect；日印象页按日期显示完整日印象，不再做情绪天气图 | `dashboard.html`、`server.py` |
 | 可选 Haven-diary/RiJi 摘记 | 完整日记留在 [Yinglianchun/RiJi](https://github.com/Yinglianchun/RiJi) 这类外部日记系统，Ombre 只提取少量长期有用记忆；不用可关闭 | `reflection_engine.py` |
 | Supabase 同步 | 本地 bucket 与 Supabase memories 表同步，支持 tombstone 删除墓碑 | `scripts/sync_to_supabase.py` |
 | ChatGPT Connector OAuth | 为 `/ombre/mcp` 提供 OAuth authorize/token 元数据 | `server.py` |
@@ -115,7 +115,7 @@ persona_engine.py       # Persona prompt、Current Inner State 文案
 reflection_engine.py    # 日印象、日记摘记、user/AI 改写规则
 dehydrator.py           # 长内容摘记命名规则
 server.py               # MCP / Dashboard 年轮作者
-dashboard.html          # 前端年轮删除显示逻辑
+dashboard.html          # Dashboard：桶列表、年轮删除、日印象月历、Persona、网络、配置和导入
 config.example.yaml     # identity、persona.profile_id、gateway、reflection
 README.md               # 示例文本
 ```
@@ -581,7 +581,7 @@ force: bool = False             # True 时重写同周期结果
 - 旧 feel 清理：确认已迁移后，用 `scripts/cleanup_migrated_feel_buckets.py` 清理旧独立 feel 桶，不删除源 bucket 下的 comments。
 - whisper：无源碎碎念/悄悄话，不适合挂到某条源记忆时，用 `hold(whisper=True)` 独立保存；用 `breath(domain="whisper")` 单独读取。
 - 日印象：`type=feel`，tags 包含 `relationship_weather` / `daily_impression`。
-- Dashboard 的“日印象”页提供月历和情绪天气图；目前只读汇总，手动编辑仍走 bucket 详情面板。
+- Dashboard 的“日印象”页提供月历和单卡片详情：左侧按日期选 daily impression，右侧显示该日完整日印象；点小铅笔进入原 bucket 详情面板手动编辑。
 - 不生成周印象；需要周视角时，优先做只读聚合视图，不把日印象压缩成周记。
 - 日记原文留在外部日记系统，例如 [Yinglianchun/RiJi](https://github.com/Yinglianchun/RiJi)；不用日记系统时可以关闭 diary 摘记，Ombre 只在有长期价值时提取少量普通记忆。
 - 日印象和重要高温记忆可带 `affect_anchor`。
