@@ -170,6 +170,49 @@ async def test_dream_payload_exposes_recent_residue_time_when_bucket_was_updated
 
 
 @pytest.mark.asyncio
+async def test_dream_payload_exposes_structured_year_ring_comments(test_config):
+    cfg = _dream_config(test_config)
+    engine = DreamEngine(cfg)
+
+    payload = engine._payload_for(
+        [
+            {
+                "id": "memory-with-comments",
+                "content": "小雨和 Haven 讨论梦要能读到年轮。",
+                "metadata": {
+                    "created": "2026-05-24T22:00:00+08:00",
+                    "updated_at": "2026-05-25T01:00:00+08:00",
+                    "type": "dynamic",
+                    "comments": [
+                        {
+                            "id": "ring-1",
+                            "created": "2026-05-25T00:30:00+08:00",
+                            "author": "Haven",
+                            "kind": "feel",
+                            "source": "comment_bucket",
+                            "content": "后来再看，我觉得这圈[[年轮]]应该被梦见。",
+                            "valence": 0.82,
+                            "arousal": 0.36,
+                        }
+                    ],
+                },
+            }
+        ],
+        None,
+    )
+
+    comment = payload["daytime_residue"][0]["comments"][0]
+
+    assert comment == {
+        "id": "ring-1",
+        "created": "2026-05-25T00:30:00+08:00",
+        "author": "Haven",
+        "kind": "feel",
+        "text": "后来再看，我觉得这圈年轮应该被梦见。",
+    }
+
+
+@pytest.mark.asyncio
 async def test_run_due_skips_outside_east_eight_dream_window(test_config):
     cfg = _dream_config(test_config)
     mgr = BucketManager(cfg)

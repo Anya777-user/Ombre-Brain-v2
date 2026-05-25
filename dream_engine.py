@@ -27,7 +27,7 @@ DREAM_PROMPT = """你在睡梦中。
 你会收到：
 - dreamer：正在做梦的 AI 名字。
 - identity_anchor：只用来确定“谁在梦”，不要复述，不要当成剧情。
-- daytime_residue：最近两天内的记忆碎片和 whisper。
+- daytime_residue：最近两天内的记忆碎片和 whisper；其中 comments 是某条记忆下后来的年轮/回看感受。
 
 请用 dreamer 的第一人称、现在时写一段梦境。
 
@@ -298,6 +298,28 @@ class DreamEngine:
         return materials[: self.material_limit], identity_anchor
 
     def _payload_for(self, materials: list[dict], identity_anchor: dict | None) -> dict:
+        def comment_payloads(bucket: dict) -> list[dict]:
+            meta = bucket.get("metadata", {}) or {}
+            comments = meta.get("comments", [])
+            if not isinstance(comments, list):
+                return []
+            payloads = []
+            for comment in comments[-4:]:
+                if not isinstance(comment, dict):
+                    continue
+                text = strip_wikilinks(str(comment.get("content") or "")).strip()
+                if not text:
+                    continue
+                item = {
+                    "id": str(comment.get("id") or ""),
+                    "created": str(comment.get("created") or ""),
+                    "author": str(comment.get("author") or ""),
+                    "kind": str(comment.get("kind") or "comment"),
+                    "text": text[:320],
+                }
+                payloads.append(item)
+            return payloads
+
         def material_payload(bucket: dict) -> dict:
             meta = bucket.get("metadata", {}) or {}
             tags = {str(tag).lower() for tag in meta.get("tags", []) or []}
@@ -312,6 +334,7 @@ class DreamEngine:
                 "valence": meta.get("valence", 0.5),
                 "arousal": meta.get("arousal", 0.3),
                 "text": strip_wikilinks(bucket_text_for_embedding(bucket))[:700],
+                "comments": comment_payloads(bucket),
             }
 
         anchor_payload = None
