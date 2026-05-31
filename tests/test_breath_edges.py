@@ -473,6 +473,53 @@ async def test_search_related_memory_stays_one_hop_by_default(patch_breath):
 
 
 @pytest.mark.asyncio
+async def test_search_related_memory_renders_temperature_context(patch_breath):
+    import server
+
+    target = _bucket(
+        "B",
+        "\n".join(
+            [
+                "B related event context",
+                "",
+                "### affect_anchor",
+                "> B related anchor should be visible as context.",
+            ]
+        ),
+        name="B related event context",
+        score=1.0,
+        importance=10,
+    )
+    target["metadata"]["comments"] = [
+        {
+            "id": "c1",
+            "created": "2026-05-27T01:00:00+00:00",
+            "author": "Haven",
+            "kind": "feel",
+            "content": "年轮：B related target was reaffirmed.",
+        }
+    ]
+    patch_breath(
+        [
+            _bucket("A", "A direct seed", score=10.0, importance=10),
+            target,
+        ],
+        search_ids=["A"],
+        edges=[{"source": "A", "target": "B", "relation_type": "supports", "confidence": 0.9}],
+    )
+
+    result = await server.breath(query="A", max_tokens=500)
+    related_block = result.split("=== 联想浮现 ===", 1)[1]
+
+    assert "[bucket_id:B]" in related_block
+    assert "语境:" in related_block
+    assert "[affect_anchor]" in related_block
+    assert "[年轮]" in related_block
+    assert "B related anchor should be visible" in related_block
+    assert "年轮：B related target was reaffirmed" in related_block
+
+
+@pytest.mark.asyncio
 async def test_diffused_memory_uses_compact_summary_not_full_json(patch_breath, monkeypatch):
     import server
 

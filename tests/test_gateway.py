@@ -2235,6 +2235,70 @@ def test_gateway_diffused_memory_uses_summary_only_for_moments(
     assert "扩散目标原文-绝对不能出现 ABC123" not in injected
 
 
+def test_gateway_diffused_memory_renders_temperature_context(
+    monkeypatch,
+    test_config,
+    bucket_mgr,
+):
+    cfg = _gateway_config(
+        test_config,
+        recent_context_budget=0,
+        recalled_memory_budget=500,
+        related_memory_budget=1200,
+        inject_total_budget=2200,
+        current_inner_state_interval_rounds=0,
+    )
+    seed_id, target_id = _create_moment_diffusion_pair(
+        bucket_mgr,
+        cfg,
+        target_name="扩散温度目标",
+        target_content=(
+            "扩散目标正文。\n\n"
+            "### affect_anchor\n\n"
+            "> 扩散目标温度锚点应该作为辅助语境出现。"
+        ),
+    )
+    _set_bucket_times(
+        bucket_mgr,
+        target_id,
+        hours_ago=240,
+        comments=[
+            {
+                "id": "c-diffused-temperature",
+                "kind": "feel",
+                "content": "年轮：扩散目标后来被重新确认。",
+            }
+        ],
+    )
+    cfg["memory_diffusion"] = {"max_hops": 1, "min_activation": 0.0, "top_k": 2}
+    app, _, _, captured = _build_service(
+        monkeypatch,
+        cfg,
+        bucket_mgr,
+        embedding_results=[(seed_id, 0.99)],
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat/completions",
+            headers={
+                "Authorization": "Bearer gateway-secret",
+                "X-Ombre-Session-Id": "sess-diffused-temperature-context",
+            },
+            json={"messages": [{"role": "user", "content": "种子项目现在怎样"}]},
+        )
+
+    assert response.status_code == 200
+    injected = _joined_message_content(captured[0]["json"]["messages"])
+    assert "Diffused Memory" in injected
+    assert "扩散温度目标" in injected
+    assert "context:" in injected
+    assert "[affect_anchor]" in injected
+    assert "[year_ring]" in injected
+    assert "扩散目标温度锚点应该作为辅助语境出现" in injected
+    assert "年轮：扩散目标后来被重新确认" in injected
+
+
 def test_gateway_explicit_topic_diffusion_stays_on_topic(
     monkeypatch,
     test_config,

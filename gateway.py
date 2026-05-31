@@ -32,7 +32,7 @@ from memory_diffusion import (
     should_suppress_context_candidate,
 )
 from memory_edges import MemoryEdgeStore
-from memory_moments import MemoryMomentStore
+from memory_moments import MemoryMomentStore, parse_bucket_moments
 from memory_relevance import (
     active_facets,
     facets_for_node,
@@ -2826,10 +2826,63 @@ class GatewayService:
             path=path,
             moment_map=moment_map or {},
         )
+        context = self._diffused_temperature_context(
+            moment,
+            path=path,
+            moment_map=moment_map or {},
+        )
+        context_part = f"; context: {context}" if context else ""
         suffix = f" ({note})" if note else ""
         return (
             f"- [bucket_id:{moment.get('bucket_id') or ''}] [moment_id:{moment.get('moment_id') or ''}] "
-            f"{summary}{suffix}"
+            f"{summary}{context_part}{suffix}"
+        )
+
+    def _diffused_temperature_context(
+        self,
+        moment: dict,
+        *,
+        path: Any | None = None,
+        moment_map: dict[str, dict] | None = None,
+        max_items: int = 2,
+        max_chars: int = 90,
+    ) -> str:
+        moment_map = moment_map or {}
+        bucket_id = str(moment.get("bucket_id") or "")
+        if not bucket_id:
+            return ""
+        contexts: list[dict] = []
+        seen: set[str] = set()
+
+        def add_context(candidate: dict | None) -> None:
+            if len(contexts) >= max_items or not isinstance(candidate, dict):
+                return
+            if str(candidate.get("bucket_id") or "") != bucket_id:
+                return
+            if candidate.get("section") not in MOMENT_TEMPERATURE_SECTIONS:
+                return
+            moment_id = str(candidate.get("moment_id") or "")
+            if not moment_id or moment_id == str(moment.get("moment_id") or "") or moment_id in seen:
+                return
+            if not self._moment_text(candidate, max_chars):
+                return
+            seen.add(moment_id)
+            contexts.append(candidate)
+
+        for node_id in getattr(path, "nodes", ()) or ():
+            add_context(moment_map.get(str(node_id)))
+        for candidate in sorted(
+            moment_map.values(),
+            key=lambda item: int(item.get("ordinal") or 0) if isinstance(item, dict) else 0,
+        ):
+            add_context(candidate)
+            if len(contexts) >= max_items:
+                break
+
+        return " / ".join(
+            f"[{MOMENT_SECTION_LABELS.get(str(item.get('section') or ''), str(item.get('section') or 'moment'))}] "
+            f"{self._moment_text(item, max_chars)}"
+            for item in contexts
         )
 
     def _diffused_moment_summary(
@@ -3032,12 +3085,14 @@ class GatewayService:
                 continue
             raw_summary = await self._summarize_bucket(target)
             summary = self._compact_diffused_summary(target, raw_summary)
+            context = self._bucket_temperature_context(target)
             caution = (
                 "conflict_or_blocking_path"
                 if path_has_caution(hit.best_path)
                 else "background_association_not_current_fact"
             )
-            line = f"- [bucket_id:{target_id}] {summary} ({caution})"
+            context_part = f"; context: {context}" if context else ""
+            line = f"- [bucket_id:{target_id}] {summary}{context_part} ({caution})"
             tokens = count_tokens_approx(line)
             if tokens > remaining and parts:
                 break
@@ -3049,6 +3104,27 @@ class GatewayService:
             if remaining <= 0:
                 break
         return "\n".join(parts)
+
+    def _bucket_temperature_context(
+        self,
+        bucket: dict,
+        max_items: int = 2,
+        max_chars: int = 90,
+    ) -> str:
+        try:
+            moments = parse_bucket_moments(bucket, self.relevance_options)
+        except Exception:
+            return ""
+        contexts = [
+            moment
+            for moment in moments
+            if moment.get("section") in MOMENT_TEMPERATURE_SECTIONS and self._moment_text(moment, max_chars)
+        ][:max_items]
+        return " / ".join(
+            f"[{MOMENT_SECTION_LABELS.get(str(moment.get('section') or ''), str(moment.get('section') or 'moment'))}] "
+            f"{self._moment_text(moment, max_chars)}"
+            for moment in contexts
+        )
 
     def _node_facets_enabled(self) -> bool:
         cfg = self.config.get("node_facets", {}) or {}

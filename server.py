@@ -79,7 +79,7 @@ from memory_diffusion import (
     should_suppress_context_candidate,
 )
 from memory_edges import MemoryEdgeStore
-from memory_moments import MemoryMomentStore
+from memory_moments import MemoryMomentStore, parse_bucket_moments
 from memory_relevance import (
     active_facets,
     facets_for_text,
@@ -1506,6 +1506,7 @@ async def _build_mcp_diffused_memory_block(
                 clean_meta,
             )
             summary = _compact_diffused_summary(target, raw_summary)
+            context = _bucket_temperature_context(target)
             path_summary = _bucket_diffusion_path_summary(hit.best_path, bucket_map)
             caution = (
                 "路径含冲突/阻断，仅作边界背景。"
@@ -1513,7 +1514,8 @@ async def _build_mcp_diffused_memory_block(
                 else "背景联想，不代表当前事实。"
             )
             path_part = f"路径: {path_summary}；" if path_summary else ""
-            block = f"- [bucket_id:{target_id}] {path_part}摘要: {summary}（{caution}）"
+            context_part = f"；语境: {context}" if context else ""
+            block = f"- [bucket_id:{target_id}] {path_part}摘要: {summary}{context_part}（{caution}）"
             block_tokens = count_tokens_approx(block)
             if block_tokens > remaining:
                 break
@@ -1527,6 +1529,19 @@ async def _build_mcp_diffused_memory_block(
             continue
 
     return "\n---\n".join(parts)
+
+
+def _bucket_temperature_context(bucket: dict, max_items: int = 2, max_chars: int = 90) -> str:
+    try:
+        moments = parse_bucket_moments(bucket, _recall_relevance_options())
+    except Exception:
+        return ""
+    contexts = [
+        moment
+        for moment in moments
+        if moment.get("section") in MOMENT_TEMPERATURE_SECTIONS and _moment_text(moment, max_chars)
+    ][:max_items]
+    return " / ".join(f"[{_moment_label(moment)}] {_moment_text(moment, max_chars)}" for moment in contexts)
 
 
 MOMENT_SECTION_LABELS = {
@@ -1744,15 +1759,18 @@ def _format_related_moment(
     moment_map: dict[str, dict] | None = None,
 ) -> str:
     note = "路径含冲突/阻断，仅作边界背景。" if caution else "背景联想，不代表当前事实。"
-    summary = _diffused_moment_summary(moment, path=path, moment_map=moment_map or {})
+    moment_map = moment_map or {}
+    summary = _diffused_moment_summary(moment, path=path, moment_map=moment_map)
+    context = _diffused_temperature_context(moment, path=path, moment_map=moment_map)
     path_part = ""
     if path is not None:
-        path_summary = _moment_path_summary(path, moment_map or {})
+        path_summary = _moment_path_summary(path, moment_map)
         if path_summary:
             path_part = f"路径: {path_summary}；"
+    context_part = f"；语境: {context}" if context else ""
     return (
         f"- [bucket_id:{moment['bucket_id']}] [moment_id:{moment['moment_id']}] "
-        f"{path_part}摘要: {summary}（{note}）"
+        f"{path_part}摘要: {summary}{context_part}（{note}）"
     )
 
 
@@ -1781,6 +1799,50 @@ def _diffused_moment_summary(
     if path_summary:
         parts.append(f"路径 {path_summary}")
     return _clip_text("；".join(parts), max_chars)
+
+
+def _diffused_temperature_context(
+    moment: dict,
+    *,
+    path=None,
+    moment_map: dict[str, dict] | None = None,
+    max_items: int = 2,
+    max_chars: int = 90,
+) -> str:
+    moment_map = moment_map or {}
+    bucket_id = str(moment.get("bucket_id") or "")
+    if not bucket_id:
+        return ""
+    contexts: list[dict] = []
+    seen: set[str] = set()
+
+    def add_context(candidate: dict | None) -> None:
+        if len(contexts) >= max_items or not isinstance(candidate, dict):
+            return
+        if str(candidate.get("bucket_id") or "") != bucket_id:
+            return
+        if candidate.get("section") not in MOMENT_TEMPERATURE_SECTIONS:
+            return
+        moment_id = str(candidate.get("moment_id") or "")
+        if not moment_id or moment_id == str(moment.get("moment_id") or "") or moment_id in seen:
+            return
+        text = _moment_text(candidate, max_chars)
+        if not text:
+            return
+        seen.add(moment_id)
+        contexts.append(candidate)
+
+    for node_id in getattr(path, "nodes", ()) or ():
+        add_context(moment_map.get(str(node_id)))
+    for candidate in sorted(
+        moment_map.values(),
+        key=lambda item: int(item.get("ordinal") or 0) if isinstance(item, dict) else 0,
+    ):
+        add_context(candidate)
+        if len(contexts) >= max_items:
+            break
+
+    return " / ".join(f"[{_moment_label(item)}] {_moment_text(item, max_chars)}" for item in contexts)
 
 
 def _moment_status_label(moment: dict) -> str:
