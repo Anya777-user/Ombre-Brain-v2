@@ -285,34 +285,7 @@ class ReflectionEngine:
                 except Exception as exc:
                     logger.warning("Memory affect anchor embedding refresh failed for %s: %s", bucket_id, exc)
 
-        candidate_ids = {item["id"] for item in candidates}
-        raw_edges = result.get("edges", [])
-        if not isinstance(raw_edges, list):
-            raw_edges = []
-        edges = []
-        for edge in raw_edges:
-            if not isinstance(edge, dict):
-                continue
-            target = str(edge.get("target_memory_id") or edge.get("target") or "").strip()
-            if target not in candidate_ids:
-                continue
-            relation_type = str(edge.get("relation_type") or "relates_to").strip()
-            if relation_type not in RELATION_TYPES:
-                relation_type = "relates_to"
-            source = bucket_id
-            edge_target = target
-            if relation_type in {"context_of", "precedes"}:
-                source = target
-                edge_target = bucket_id
-            edges.append(
-                {
-                    "source": source,
-                    "target": edge_target,
-                    "relation_type": relation_type,
-                    "confidence": self._clamp(edge.get("confidence", confidence)),
-                    "reason": str(edge.get("reason") or "").strip(),
-                }
-            )
+        edges = self._edges_from_classification(bucket_id, candidates, result, confidence)
         saved_edges = edge_store.add_edges(edges[:3])
         return {
             "status": "ok",
@@ -320,6 +293,42 @@ class ReflectionEngine:
             "tags": tags,
             "confidence": confidence,
             "edges": len(saved_edges),
+        }
+
+    async def backfill_edges_for_bucket(
+        self,
+        bucket_id: str,
+        bucket_mgr,
+        edge_store: MemoryEdgeStore,
+        embedding_engine=None,
+        *,
+        dry_run: bool = False,
+    ) -> dict:
+        if not self.enabled:
+            return {"status": "disabled", "id": bucket_id, "edges": 0, "proposed_edges": 0}
+        bucket = await bucket_mgr.get(bucket_id)
+        if not bucket:
+            return {"status": "missing", "id": bucket_id, "edges": 0, "proposed_edges": 0}
+        meta = bucket.get("metadata", {})
+        if meta.get("type") == "feel" or meta.get("protected"):
+            return {"status": "skipped", "reason": "not_edge_backfillable", "id": bucket_id, "edges": 0, "proposed_edges": 0}
+
+        candidates = await self._candidate_buckets(bucket, bucket_mgr, embedding_engine)
+        if self.client:
+            result = await self._api_classify(bucket, candidates)
+        else:
+            result = self._heuristic_classify(bucket)
+        confidence = self._clamp(result.get("confidence", meta.get("confidence", 0.55)))
+        proposed_edges = self._edges_from_classification(bucket_id, candidates, result, confidence)[:3]
+        saved_edges = [] if dry_run else edge_store.add_edges(proposed_edges)
+        return {
+            "status": "ok",
+            "id": bucket_id,
+            "candidate_count": len(candidates),
+            "proposed_edges": len(proposed_edges),
+            "edges": len(saved_edges),
+            "dry_run": bool(dry_run),
+            "edge_records": proposed_edges if dry_run else saved_edges,
         }
 
     async def reflect(
@@ -603,6 +612,43 @@ class ReflectionEngine:
         raw = response.choices[0].message.content if response.choices else ""
         parsed = self._parse_json_object(raw or "")
         return parsed or self._heuristic_classify(bucket)
+
+    def _edges_from_classification(
+        self,
+        bucket_id: str,
+        candidates: list[dict],
+        result: dict,
+        default_confidence: float,
+    ) -> list[dict]:
+        candidate_ids = {item["id"] for item in candidates if item.get("id")}
+        raw_edges = result.get("edges", [])
+        if not isinstance(raw_edges, list):
+            raw_edges = []
+        edges = []
+        for edge in raw_edges:
+            if not isinstance(edge, dict):
+                continue
+            target = str(edge.get("target_memory_id") or edge.get("target") or "").strip()
+            if target not in candidate_ids:
+                continue
+            relation_type = str(edge.get("relation_type") or "relates_to").strip()
+            if relation_type not in RELATION_TYPES:
+                relation_type = "relates_to"
+            source = bucket_id
+            edge_target = target
+            if relation_type in {"context_of", "precedes"}:
+                source = target
+                edge_target = bucket_id
+            edges.append(
+                {
+                    "source": source,
+                    "target": edge_target,
+                    "relation_type": relation_type,
+                    "confidence": self._clamp(edge.get("confidence", default_confidence)),
+                    "reason": str(edge.get("reason") or "").strip(),
+                }
+            )
+        return edges
 
     async def _api_reflect(self, period: str, key: str, materials: dict) -> dict:
         payload = {"period": period, "date": key, **materials}
