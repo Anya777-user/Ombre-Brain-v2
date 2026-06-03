@@ -597,6 +597,7 @@ def strip_wikilinks(text: str) -> str:
 
 
 _AFFECT_ANCHOR_RE = re.compile(r"(?ims)^###\s*affect_anchor\s*$.*?(?=^###\s+|\Z)")
+_TEMPERATURE_MEANING_LINE_RE = re.compile(r"(?m)^\s*含义[:：].*(?:\n|$)")
 
 
 def strip_affect_anchor(text: str) -> str:
@@ -604,6 +605,13 @@ def strip_affect_anchor(text: str) -> str:
     if not text:
         return text
     return _AFFECT_ANCHOR_RE.sub("", str(text)).strip()
+
+
+def strip_temperature_meaning_lines(text: str) -> str:
+    """Remove template-like affect-anchor meaning lines from rendered context."""
+    if not text:
+        return text
+    return _TEMPERATURE_MEANING_LINE_RE.sub("", str(text)).strip()
 
 
 def bucket_text_for_embedding(bucket: dict) -> str:

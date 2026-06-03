@@ -379,6 +379,7 @@ async def test_search_direct_moment_includes_neighbor_context_and_temperature(pa
                 "",
                 "### affect_anchor",
                 "> 小雨把旧信放到桌上。",
+                "含义：模板解释不要进入语境。",
             ]
         ),
         score=10.0,
@@ -395,6 +396,7 @@ async def test_search_direct_moment_includes_neighbor_context_and_temperature(pa
     assert "开头写了事情经过" in result
     assert "不能被摘要抹平" in result
     assert "affect_anchor" in result
+    assert "模板解释不要进入语境" not in result
     assert bucket_mgr.touched == ["A"]
 
 
@@ -484,6 +486,7 @@ async def test_search_related_memory_renders_temperature_context(patch_breath):
                 "",
                 "### affect_anchor",
                 "> B related anchor should be visible as context.",
+                "含义：template meaning should be hidden.",
             ]
         ),
         name="B related event context",
@@ -516,6 +519,7 @@ async def test_search_related_memory_renders_temperature_context(patch_breath):
     assert "[affect_anchor]" in related_block
     assert "[年轮]" in related_block
     assert "B related anchor should be visible" in related_block
+    assert "template meaning should be hidden" not in related_block
     assert "年轮：B related target was reaffirmed" in related_block
 
 

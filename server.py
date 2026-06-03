@@ -104,6 +104,7 @@ from utils import (
     load_config,
     now_iso,
     setup_logging,
+    strip_temperature_meaning_lines,
     strip_wikilinks,
 )
 
@@ -1702,7 +1703,8 @@ PROFILE_CONTEXT_SECTIONS = ("evidence_context", "context", "reflection", "feelin
 
 
 def _moment_text(moment: dict, max_chars: int = 500) -> str:
-    return _clip_text(" ".join(str(moment.get("text") or "").split()), max_chars)
+    text = strip_temperature_meaning_lines(str(moment.get("text") or ""))
+    return _clip_text(" ".join(text.split()), max_chars)
 
 
 def _moment_label(moment: dict) -> str:

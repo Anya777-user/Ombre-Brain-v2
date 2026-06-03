@@ -1,4 +1,4 @@
-from utils import bucket_text_for_embedding, strip_affect_anchor
+from utils import bucket_text_for_embedding, strip_affect_anchor, strip_temperature_meaning_lines
 
 
 def test_bucket_text_for_embedding_includes_title_and_content_only():
@@ -47,3 +47,17 @@ def test_strip_affect_anchor_preserves_following_sections():
     assert "Cmaj7" not in cleaned
     assert "### 喜欢它的原因" in cleaned
     assert "这里仍然要保留。" in cleaned
+
+
+def test_strip_temperature_meaning_lines_only_removes_standalone_lines():
+    text = (
+        "> 小雨把旧信放到桌上。\n"
+        "含义：这只是模板解释。\n"
+        "正文里的含义：应该保留。"
+    )
+
+    cleaned = strip_temperature_meaning_lines(text)
+
+    assert "模板解释" not in cleaned
+    assert "> 小雨把旧信放到桌上。" in cleaned
+    assert "正文里的含义：应该保留。" in cleaned

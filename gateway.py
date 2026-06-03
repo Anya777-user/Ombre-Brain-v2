@@ -47,7 +47,13 @@ from recall_policy import CONTEXT_ONLY_SECTIONS, RecallPolicy
 from memory_nodes import MemoryNodeStore
 from persona_engine import PersonaStateEngine
 from reranker_engine import RerankerEngine
-from utils import count_tokens_approx, load_config, setup_logging, strip_wikilinks
+from utils import (
+    count_tokens_approx,
+    load_config,
+    setup_logging,
+    strip_temperature_meaning_lines,
+    strip_wikilinks,
+)
 
 logger = logging.getLogger("ombre_brain.gateway")
 FAVORITE_MEMORY_MARKER = "[[ombre:favorite]]"
@@ -3154,7 +3160,8 @@ class GatewayService:
         )
 
     def _moment_text(self, moment: dict, max_chars: int = 220) -> str:
-        return self._clip_text(" ".join(str(moment.get("text") or "").split()), max_chars)
+        text = strip_temperature_meaning_lines(str(moment.get("text") or ""))
+        return self._clip_text(" ".join(text.split()), max_chars)
 
     def _moment_bucket_title(self, moment: dict) -> str:
         meta = moment.get("metadata", {}) if isinstance(moment.get("metadata"), dict) else {}

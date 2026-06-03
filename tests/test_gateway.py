@@ -2264,7 +2264,8 @@ def test_gateway_diffused_memory_renders_temperature_context(
         target_content=(
             "扩散目标正文。\n\n"
             "### affect_anchor\n\n"
-            "> 扩散目标温度锚点应该作为辅助语境出现。"
+            "> 扩散目标温度锚点应该作为辅助语境出现。\n"
+            "含义：模板解释不应该进入输出。"
         ),
     )
     _set_bucket_times(
@@ -2305,6 +2306,7 @@ def test_gateway_diffused_memory_renders_temperature_context(
     assert "[affect_anchor]" in injected
     assert "[year_ring]" in injected
     assert "扩散目标温度锚点应该作为辅助语境出现" in injected
+    assert "模板解释不应该进入输出" not in injected
     assert "年轮：扩散目标后来被重新确认" in injected
 
 
