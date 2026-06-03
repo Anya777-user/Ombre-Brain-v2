@@ -375,10 +375,10 @@ def pair_score(source: IndexedMoment, target: IndexedMoment) -> tuple[float, lis
 def relation_type_for(score: float, source: IndexedMoment, target: IndexedMoment) -> str:
     term_overlap = source.terms & target.terms
     facet_overlap = source.facets & target.facets
-    if moment_has_marker(source.moment, CONFLICT_MARKERS) or moment_has_marker(target.moment, CONFLICT_MARKERS):
-        return "conflict"
     if moment_has_old_version_marker(source.moment) or moment_has_old_version_marker(target.moment):
         return "old_version"
+    if moment_has_marker(source.moment, CONFLICT_MARKERS) or moment_has_marker(target.moment, CONFLICT_MARKERS):
+        return "conflict"
     if source.moment.get("section") == "followup" or target.moment.get("section") == "followup":
         return "followup"
     if score >= 0.82 and facet_overlap and len(term_overlap) >= 2:
