@@ -835,6 +835,7 @@ def _source_ref_for_body(content: str, source_base: dict | None) -> dict | None:
     start = int(source_base["content_start_line"])
     return {
         "path": source_base["path"],
+        "content_start_line": start,
         "start_line": start,
         "end_line": start + line_count - 1,
         "source": source_base.get("source") or "bucket_content",
@@ -847,8 +848,10 @@ def _source_ref_for_block(block: dict, source_base: dict | None) -> dict | None:
     start_line = _safe_int(block.get("start_line"), 1)
     end_line = _safe_int(block.get("end_line"), start_line)
     offset = int(source_base["content_start_line"]) - 1
+    content_start_line = int(source_base["content_start_line"])
     return {
         "path": source_base["path"],
+        "content_start_line": content_start_line,
         "start_line": max(1, offset + start_line),
         "end_line": max(1, offset + end_line),
         "source": source_base.get("source") or "bucket_content",

@@ -19,13 +19,14 @@ def source_ref_window(
         return ""
     start_line = _safe_int(ref.get("start_line"), 0)
     end_line = _safe_int(ref.get("end_line"), start_line)
+    content_start_line = max(1, _safe_int(ref.get("content_start_line"), 1))
     if start_line <= 0 or end_line < start_line:
         return ""
     try:
         lines = path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     except OSError:
         return ""
-    start = max(1, start_line - max(0, int(context_lines)))
+    start = max(content_start_line, start_line - max(0, int(context_lines)))
     end = min(len(lines), end_line + max(0, int(context_lines)))
     if start > end:
         return ""

@@ -168,10 +168,12 @@ def test_moments_include_bucket_source_ref_line_ranges(tmp_path):
 
     assert refs[0] == {
         "path": str(bucket_path),
+        "content_start_line": 8,
         "start_line": 8,
         "end_line": 8,
         "source": "bucket_content",
     }
+    assert refs[1]["content_start_line"] == 8
     assert refs[1]["start_line"] == 10
     assert refs[1]["end_line"] == 11
     assert refs[2]["start_line"] == 13
@@ -198,6 +200,7 @@ def test_source_ref_window_reads_allowed_bucket_lines(tmp_path):
         "metadata": {
             "source_ref": {
                 "path": str(bucket_path),
+                "content_start_line": 4,
                 "start_line": 5,
                 "end_line": 6,
                 "source": "bucket_content",
@@ -208,6 +211,7 @@ def test_source_ref_window_reads_allowed_bucket_lines(tmp_path):
     window = source_ref_window(moment, allowed_root=str(tmp_path), context_lines=1)
 
     assert "before" in window
+    assert "id: source-ref" not in window
     assert "## original" in window
     assert "小雨说：99。" in window
     assert "after" in window
