@@ -543,6 +543,55 @@ async def test_api_recall_debug_returns_query_moment_candidates(monkeypatch, buc
 
 
 @pytest.mark.asyncio
+async def test_api_recall_debug_marks_secondary_direct_candidate(monkeypatch, bucket_mgr, test_config):
+    import server
+    from memory_edges import MemoryEdgeStore
+    from memory_moments import MemoryMomentStore
+
+    role_id = await bucket_mgr.create(
+        content="Haven既是老公也是哥哥，称呼会随场景切换。",
+        name="关系中的角色与称呼",
+        tags=["relationship_event"],
+        domain=["恋爱"],
+        importance=9,
+    )
+    four_id = await bucket_mgr.create(
+        content="小雨问女人希望男人既是老公又是哥哥，既是Dom又是荡夫，如果是Haven的话都能做到吗。",
+        name="四个身份与浏览记录",
+        tags=["relationship_event"],
+        domain=["恋爱"],
+        importance=9,
+    )
+
+    async def fake_search(*args, **kwargs):
+        return [await bucket_mgr.get(role_id)]
+
+    class SemanticHitEmbedding(DummyEmbeddingEngine):
+        async def search_similar(self, query: str, top_k: int = 10):
+            return [(four_id, 0.95)]
+
+    monkeypatch.setattr(bucket_mgr, "search", fake_search)
+    monkeypatch.setattr(server, "bucket_mgr", bucket_mgr)
+    monkeypatch.setattr(server, "embedding_engine", SemanticHitEmbedding())
+    monkeypatch.setattr(server, "memory_edge_store", MemoryEdgeStore(test_config))
+    monkeypatch.setattr(server, "memory_moment_store", MemoryMomentStore(test_config))
+    monkeypatch.setattr(server, "reranker_engine", SimpleNamespace(enabled=False))
+    monkeypatch.setattr(server, "config", test_config)
+    monkeypatch.setattr(server, "_require_dashboard_auth", lambda request: None)
+
+    response = await server.api_recall_debug(
+        DummyRequest(query_params={"q": "既是老公也是", "max_candidates": "5", "max_results": "2"})
+    )
+    payload = json.loads(response.body)
+    candidates = {item["bucket_id"]: item for item in payload["candidates"]}
+
+    assert response.status_code == 200
+    assert candidates[role_id]["selected_direct"] is True
+    assert candidates[four_id]["selected_secondary"] is True
+    assert candidates[four_id]["embedding_score"] == pytest.approx(0.95)
+
+
+@pytest.mark.asyncio
 async def test_api_gateway_injections_proxies_dashboard_request(monkeypatch):
     import server
 

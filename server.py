@@ -2868,6 +2868,33 @@ async def _build_recall_debug_payload(
         if moment.get("moment_id")
     ]
     returned_set = set(returned_ids)
+    returned_moments = admitted_moments[:max_results]
+    displayed_moment_ids: list[str] = []
+    displayed_bucket_ids: set[str] = set()
+    for moment in returned_moments:
+        bucket_id = str(moment.get("bucket_id") or "")
+        moment_id = str(moment.get("moment_id") or "")
+        if not bucket_id or bucket_id in displayed_bucket_ids:
+            continue
+        displayed_bucket_ids.add(bucket_id)
+        if moment_id:
+            displayed_moment_ids.append(moment_id)
+        break
+    query_plan = _recall_query_plan(query)
+    secondary_moments = _secondary_direct_moments(
+        query,
+        returned_moments,
+        displayed_bucket_ids,
+        query_plan.secondary_direct_limit(1),
+        query_plan=query_plan,
+        seed_diagnostics=seed_diagnostics,
+    )
+    secondary_ids = {
+        str(moment.get("moment_id") or "")
+        for moment in secondary_moments
+        if moment.get("moment_id")
+    }
+    displayed_set = set(displayed_moment_ids)
     options = _recall_relevance_options()
 
     candidates = []
@@ -2910,6 +2937,8 @@ async def _build_recall_debug_payload(
                 "admission_reason": admission.reason,
                 "admission_debug": getattr(admission, "debug", {}),
                 "selected_returned": moment_id in returned_set,
+                "selected_direct": moment_id in displayed_set,
+                "selected_secondary": moment_id in secondary_ids,
                 "layer_debug": moment_layer_debug(final or moment, explicit_lookup=explicit_lookup),
                 "runtime_gate": moment_runtime_gate_debug(final or moment, explicit_lookup=explicit_lookup),
                 "annotation_summary": (moment.get("metadata") or {}).get("annotation_summary"),

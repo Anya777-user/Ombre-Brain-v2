@@ -3390,9 +3390,12 @@ function renderRecallDebug(data) {
 function renderRecallCandidate(candidate) {
   var c = candidate || {};
   var admitted = c.admission === 'admitted';
-  var selected = !!c.selected_returned;
+  var direct = !!c.selected_direct;
+  var secondary = !!c.selected_secondary;
+  var selected = direct || secondary || !!c.selected_returned;
+  var roleText = direct ? 'direct' : secondary ? 'secondary' : selected ? 'returned' : admitted ? 'admitted' : 'suppressed';
   var chips = [
-    { text: selected ? 'returned' : admitted ? 'admitted' : 'suppressed', state: selected || admitted ? 'allow' : 'block' },
+    { text: roleText, state: selected || admitted ? 'allow' : 'block' },
     { text: 'pre #' + rankText(c.pre_rank) },
     { text: 'gate ' + (c.gate_rank == null ? 'filtered' : '#' + rankText(c.gate_rank)), state: c.gate === 'filtered' ? 'block' : 'allow' },
     { text: 'final ' + (c.final_rank == null ? '—' : '#' + rankText(c.final_rank)) },
