@@ -964,6 +964,30 @@ def _bucket_read_payload(bucket: dict) -> dict:
     }
 
 
+def _bucket_summary_payload(bucket: dict) -> dict:
+    meta = bucket.get("metadata", {}) if isinstance(bucket, dict) else {}
+    return {
+        "id": bucket.get("id", ""),
+        "name": meta.get("name", bucket.get("id", "")),
+        "type": meta.get("type", "dynamic"),
+        "domain": meta.get("domain", []),
+        "tags": meta.get("tags", []),
+        "importance": meta.get("importance", 5),
+        "valence": meta.get("valence", 0.5),
+        "arousal": meta.get("arousal", 0.5),
+        "confidence": meta.get("confidence", 0.5),
+        "pinned": meta.get("pinned", False),
+        "protected": meta.get("protected", False),
+        "anchor": meta.get("anchor", False),
+        "resolved": meta.get("resolved", False),
+        "digested": meta.get("digested", False),
+        "created": meta.get("created", ""),
+        "updated_at": meta.get("updated_at", ""),
+        "last_active": meta.get("last_active", ""),
+        "content_preview": strip_wikilinks(bucket.get("content", ""))[:200],
+    }
+
+
 def _is_profile_fact_bucket(bucket: dict) -> bool:
     meta = bucket.get("metadata", {}) if isinstance(bucket, dict) else {}
     tags = {str(tag).strip() for tag in meta.get("tags", []) or [] if str(tag).strip()}
@@ -1277,6 +1301,134 @@ def _parse_profile_fact_proposals(
         proposals.append(proposal)
         if len(proposals) >= max(1, min(3, int(max_proposals))):
             break
+    return proposals, rejected
+
+
+ANCHOR_PROPOSAL_PROMPT_TEMPLATE = """你是一个长期锚点候选生成器。请判断给定记忆桶是否值得被人工标为 anchor。
+
+身份：
+- 当前用户：{user_display_name}
+- 当前 AI：{ai_name}
+
+边界：
+1. 只能判断这个既有 bucket 是否适合作为长期锚点，不要提出新记忆，不要改写正文。
+2. 不要建议 pinned、protected、Core Memory 或 profile_fact 更新。
+3. anchor 应该是未来长期会反复帮助理解用户、关系、承诺、重要经历或长期项目的记忆。
+4. 不要把今天很强烈但未被时间验证的短期情绪当 anchor。
+5. 如果不适合，返回 []。
+6. 只输出 JSON 数组，不要 markdown，不要解释。
+
+候选格式：
+{{
+  "bucket_id": "必须等于给定 bucket id",
+  "anchor_kind": "relationship|identity|commitment|life_event|project|preference|other",
+  "reason": "为什么它适合成为长期锚点",
+  "future_use": "以后什么场景需要它",
+  "confidence": 0.0
+}}
+
+最多返回 1 条。"""
+
+
+def _anchor_proposal_static_rejection(bucket: dict) -> str:
+    meta = bucket.get("metadata", {}) if isinstance(bucket, dict) else {}
+    if meta.get("anchor"):
+        return "already anchor"
+    if meta.get("pinned") or meta.get("protected"):
+        return "pinned/protected buckets are not anchor proposal targets"
+    if _is_profile_fact_bucket(bucket):
+        return "profile_fact buckets are not anchor proposal targets"
+    if str(meta.get("type") or "").strip() == "feel":
+        return "feel buckets are not anchor proposal targets"
+    return ""
+
+
+async def _call_anchor_proposal_model(
+    *,
+    bucket: dict,
+) -> str:
+    if not getattr(dehydrator, "api_available", False) or not getattr(dehydrator, "client", None):
+        raise RuntimeError("dehydration API is not configured")
+    meta = bucket.get("metadata", {}) if isinstance(bucket, dict) else {}
+    identity = _identity()
+    prompt = ANCHOR_PROPOSAL_PROMPT_TEMPLATE.format(
+        user_display_name=identity.get("user_display_name") or identity.get("user_name") or "用户",
+        ai_name=identity.get("ai_name") or "AI",
+    )
+    evidence_payload = {
+        "bucket_id": bucket.get("id", ""),
+        "bucket_name": meta.get("name", bucket.get("id", "")),
+        "bucket_type": meta.get("type", ""),
+        "bucket_tags": meta.get("tags", []),
+        "bucket_domain": meta.get("domain", []),
+        "importance": meta.get("importance"),
+        "created": meta.get("created", ""),
+        "updated_at": meta.get("updated_at", ""),
+        "last_active": meta.get("last_active", ""),
+        "content": strip_wikilinks(bucket.get("content", ""))[:5000],
+    }
+    response = await dehydrator.client.chat.completions.create(
+        model=dehydrator.model,
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": _json_lib.dumps(evidence_payload, ensure_ascii=False)},
+        ],
+        **dehydrator._completion_options(max_tokens=500, temperature=0.0),
+    )
+    if not response.choices:
+        return "[]"
+    return response.choices[0].message.content or "[]"
+
+
+def _normalize_anchor_proposal(
+    item: dict,
+    *,
+    bucket_id: str,
+) -> tuple[dict | None, str]:
+    if not isinstance(item, dict):
+        return None, "proposal is not an object"
+    candidate_bucket_id = str(item.get("bucket_id") or "").strip()
+    if candidate_bucket_id != bucket_id:
+        return None, "bucket_id mismatch"
+    reason = _clip_text(str(item.get("reason") or "").strip(), 260)
+    future_use = _clip_text(str(item.get("future_use") or "").strip(), 220)
+    if not reason:
+        return None, "missing reason"
+    proposal = {
+        "bucket_id": bucket_id,
+        "anchor_kind": _profile_key(item.get("anchor_kind"), "other"),
+        "reason": reason,
+        "future_use": future_use,
+        "confidence": _float_between(item.get("confidence"), 0.7, 0.0, 1.0),
+    }
+    return proposal, ""
+
+
+def _parse_anchor_proposals(
+    raw: str,
+    *,
+    bucket_id: str,
+) -> tuple[list[dict], list[dict]]:
+    try:
+        parsed = _json_lib.loads(_strip_json_wrapper(raw))
+    except (TypeError, ValueError, _json_lib.JSONDecodeError):
+        return [], [{"reason": "invalid json", "raw": _clip_text(str(raw or ""), 240)}]
+    if isinstance(parsed, dict) and isinstance(parsed.get("proposals"), list):
+        parsed = parsed["proposals"]
+    if not isinstance(parsed, list):
+        return [], [{"reason": "json root is not a list"}]
+
+    proposals: list[dict] = []
+    rejected: list[dict] = []
+    for item in parsed:
+        proposal, reason = _normalize_anchor_proposal(item, bucket_id=bucket_id)
+        if not proposal:
+            rejected.append({"reason": reason, "proposal": item if isinstance(item, dict) else str(item)})
+            continue
+        if proposals:
+            rejected.append({"reason": "too many proposals", "proposal": proposal})
+            continue
+        proposals.append(proposal)
     return proposals, rejected
 
 
@@ -6327,6 +6479,125 @@ async def api_profile_fact_proposal_confirm(request):
         "id": profile_id,
         "result": result,
         "fact": await _profile_fact_payload(created),
+    })
+
+
+@mcp.custom_route("/api/anchor-proposals", methods=["POST"])
+async def api_anchor_proposals(request):
+    """Generate one manual-confirm anchor proposal for an existing bucket."""
+    from starlette.responses import JSONResponse
+    err = _require_dashboard_auth(request)
+    if err:
+        return err
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json body"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "json body must be an object"}, status_code=400)
+
+    bucket_id = str(body.get("bucket_id") or "").strip()
+    if not bucket_id or not MEMORY_ID_RE.fullmatch(bucket_id):
+        return JSONResponse({"error": "invalid bucket_id"}, status_code=400)
+
+    bucket = await bucket_mgr.get(bucket_id)
+    if not bucket:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    meta = bucket.get("metadata", {})
+    rejected: list[dict] = []
+    reason = _anchor_proposal_static_rejection(bucket)
+    if reason:
+        rejected.append({"reason": reason, "bucket_id": bucket_id})
+        return JSONResponse({
+            "status": "ok",
+            "bucket": _bucket_summary_payload(bucket),
+            "proposals": [],
+            "rejected": rejected,
+            "model": getattr(dehydrator, "model", ""),
+        })
+
+    ok, gate_message = await _can_mark_anchor(bucket_id, bucket)
+    if not ok:
+        rejected.append({"reason": gate_message, "bucket_id": bucket_id})
+        return JSONResponse({
+            "status": "ok",
+            "bucket": _bucket_summary_payload(bucket),
+            "proposals": [],
+            "rejected": rejected,
+            "model": getattr(dehydrator, "model", ""),
+        })
+
+    try:
+        raw = await _call_anchor_proposal_model(bucket=bucket)
+        proposals, rejected = _parse_anchor_proposals(raw, bucket_id=bucket_id)
+    except RuntimeError as e:
+        return JSONResponse({"error": str(e)}, status_code=503)
+    except Exception as e:
+        logger.warning("Anchor proposal failed: %s", e, exc_info=True)
+        return JSONResponse({"error": f"proposal failed: {type(e).__name__}"}, status_code=502)
+
+    return JSONResponse({
+        "status": "ok",
+        "bucket": {
+            **_bucket_summary_payload(bucket),
+            "name": meta.get("name", bucket_id),
+        },
+        "proposals": proposals,
+        "rejected": rejected,
+        "model": getattr(dehydrator, "model", ""),
+    })
+
+
+@mcp.custom_route("/api/anchor-proposals/confirm", methods=["POST"])
+async def api_anchor_proposal_confirm(request):
+    """Confirm one anchor proposal by applying the existing trace(anchor=1) path."""
+    from starlette.responses import JSONResponse
+    err = _require_dashboard_auth(request)
+    if err:
+        return err
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json body"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "json body must be an object"}, status_code=400)
+
+    bucket_id = str(body.get("bucket_id") or "").strip()
+    if not bucket_id or not MEMORY_ID_RE.fullmatch(bucket_id):
+        return JSONResponse({"error": "invalid bucket_id"}, status_code=400)
+
+    bucket = await bucket_mgr.get(bucket_id)
+    if not bucket:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if bucket.get("metadata", {}).get("anchor"):
+        return JSONResponse({
+            "status": "already_anchor",
+            "id": bucket_id,
+            "bucket": _bucket_summary_payload(bucket),
+        })
+
+    static_reason = _anchor_proposal_static_rejection(bucket)
+    if static_reason:
+        return JSONResponse({"error": static_reason}, status_code=400)
+
+    proposal, reason = _normalize_anchor_proposal(body, bucket_id=bucket_id)
+    if not proposal:
+        return JSONResponse({"error": reason or "invalid proposal"}, status_code=400)
+
+    result = await trace(bucket_id=bucket_id, anchor=1)
+    if not result.startswith("已修改记忆桶"):
+        return JSONResponse({"error": result}, status_code=400)
+
+    updated = await bucket_mgr.get(bucket_id)
+    return JSONResponse({
+        "status": "anchored",
+        "id": bucket_id,
+        "result": result,
+        "proposal": proposal,
+        "bucket": _bucket_summary_payload(updated or bucket),
     })
 
 

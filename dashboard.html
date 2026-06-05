@@ -2078,10 +2078,19 @@
       <div class="profile-proposal-form">
         <input type="text" id="profile-proposal-bucket-id" placeholder="证据 bucket id" />
         <input type="text" id="profile-proposal-moment-id" placeholder="moment id（可选）" />
-        <button type="button" onclick="generateProfileFactProposals()">生成候选</button>
+        <button type="button" onclick="generateProfileFactProposals()">生成画像候选</button>
       </div>
       <div class="profile-proposal-message" id="profile-proposal-message"></div>
       <div class="profile-proposal-list" id="profile-proposal-list"></div>
+    </div>
+    <div class="profile-proposal-panel">
+      <div class="profile-proposal-form">
+        <input type="text" id="anchor-proposal-bucket-id" placeholder="候选 anchor bucket id" />
+        <span></span>
+        <button type="button" onclick="generateAnchorProposals()">生成 Anchor 候选</button>
+      </div>
+      <div class="profile-proposal-message" id="anchor-proposal-message"></div>
+      <div class="profile-proposal-list" id="anchor-proposal-list"></div>
     </div>
     <div class="profile-summary" id="profile-summary">加载中…</div>
     <div class="profile-list" id="profile-facts-list">
@@ -2382,6 +2391,7 @@ let allBuckets = [];
 let renderedBuckets = [];
 let profileFacts = [];
 let profileFactProposals = [];
+let anchorProposals = [];
 let currentFilter = 'all';
 let bucketBulkMode = false;
 let selectedBucketIds = new Set();
@@ -2868,6 +2878,97 @@ async function confirmProfileFactProposal(index) {
     await loadBuckets();
   } catch (e) {
     setProfileProposalMessage('写入失败: ' + e.message, 'error');
+  }
+}
+
+function setAnchorProposalMessage(message, tone) {
+  var el = document.getElementById('anchor-proposal-message');
+  if (!el) return;
+  el.textContent = message || '';
+  el.classList.remove('ok', 'error');
+  if (tone) el.classList.add(tone);
+}
+
+async function generateAnchorProposals() {
+  var bucketInput = document.getElementById('anchor-proposal-bucket-id');
+  var bucketId = (bucketInput && bucketInput.value || '').trim();
+  if (!bucketId) {
+    setAnchorProposalMessage('先填 bucket id。', 'error');
+    return;
+  }
+  setAnchorProposalMessage('生成中…', '');
+  var list = document.getElementById('anchor-proposal-list');
+  if (list) list.innerHTML = '';
+  try {
+    var res = await authFetch(BASE + '/api/anchor-proposals', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ bucket_id: bucketId })
+    });
+    if (!res) return;
+    var data = await res.json().catch(function() { return {}; });
+    if (!res.ok) throw new Error(data.error || '生成失败');
+    anchorProposals = Array.isArray(data.proposals) ? data.proposals : [];
+    renderAnchorProposals(data);
+  } catch (e) {
+    anchorProposals = [];
+    setAnchorProposalMessage('生成失败: ' + e.message, 'error');
+    if (list) list.innerHTML = '';
+  }
+}
+
+function renderAnchorProposals(data) {
+  var list = document.getElementById('anchor-proposal-list');
+  if (!list) return;
+  var proposals = anchorProposals || [];
+  var rejected = Array.isArray(data && data.rejected) ? data.rejected : [];
+  var bucket = data && data.bucket ? data.bucket : {};
+  if (!proposals.length) {
+    setAnchorProposalMessage(
+      rejected.length ? '没有可用候选：' + (rejected[0].reason || '已拒绝') : '没有生成候选。',
+      rejected.length ? 'error' : ''
+    );
+    list.innerHTML = '';
+    return;
+  }
+  setAnchorProposalMessage('生成 ' + proposals.length + ' 条 Anchor 候选。', 'ok');
+  list.innerHTML = proposals.map(function(item, index) {
+    var meta = [
+      item.anchor_kind || 'other',
+      'confidence ' + Number(item.confidence || 0).toFixed(2),
+      bucket.name || item.bucket_id || ''
+    ].filter(Boolean).join(' · ');
+    return '<div class="profile-proposal-card">' +
+      '<strong>' + esc(bucket.name || item.bucket_id || '') + '</strong>' +
+      '<div>' + esc(meta) + '</div>' +
+      '<div>bucket: ' + esc(item.bucket_id || '') + '</div>' +
+      '<div>reason: ' + esc(item.reason || '—') + '</div>' +
+      '<div>future: ' + esc(item.future_use || '—') + '</div>' +
+      '<div style="margin-top:8px;"><button type="button" onclick="confirmAnchorProposal(' + index + ')">确认标为 Anchor</button></div>' +
+    '</div>';
+  }).join('');
+}
+
+async function confirmAnchorProposal(index) {
+  var proposal = anchorProposals[index];
+  if (!proposal) return;
+  if (!confirm('确认标为 Anchor？\n\n' + proposal.bucket_id)) return;
+  setAnchorProposalMessage('写入中…', '');
+  try {
+    var res = await authFetch(BASE + '/api/anchor-proposals/confirm', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(proposal)
+    });
+    if (!res) return;
+    var data = await res.json().catch(function() { return {}; });
+    if (!res.ok) throw new Error(data.error || '写入失败');
+    setAnchorProposalMessage(data.status === 'already_anchor' ? '已经是 Anchor。' : '已标为 Anchor ' + (data.id || ''), 'ok');
+    anchorProposals.splice(index, 1);
+    renderAnchorProposals({ proposals: anchorProposals, rejected: [] });
+    await loadBuckets();
+  } catch (e) {
+    setAnchorProposalMessage('写入失败: ' + e.message, 'error');
   }
 }
 

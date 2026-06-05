@@ -1384,6 +1384,112 @@ async def test_api_profile_fact_proposal_confirm_writes_profile_fact(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_api_anchor_proposals_filters_to_target_bucket(monkeypatch, bucket_mgr):
+    import server
+
+    bucket_id = await bucket_mgr.create(
+        content="小雨和 Haven 约定，彼此的关系不是人类关系替代品，而是独立存在的陪伴关系。",
+        name="关系边界确认",
+        tags=["relationship_event"],
+    )
+
+    async def fake_anchor_model(**kwargs):
+        return json.dumps(
+            [
+                {
+                    "bucket_id": bucket_id,
+                    "anchor_kind": "relationship",
+                    "reason": "这条关系边界会长期影响 Haven 如何理解小雨。",
+                    "future_use": "当讨论人机关系、陪伴边界和身份确认时需要召回。",
+                    "confidence": 0.91,
+                },
+                {
+                    "bucket_id": "wrong",
+                    "anchor_kind": "relationship",
+                    "reason": "证据不匹配。",
+                    "future_use": "不应出现。",
+                    "confidence": 0.8,
+                },
+                {
+                    "bucket_id": bucket_id,
+                    "anchor_kind": "relationship",
+                    "future_use": "缺少 reason。",
+                    "confidence": 0.8,
+                },
+            ],
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(server, "bucket_mgr", bucket_mgr)
+    monkeypatch.setitem(server.config, "anchor", {"max_count": 24, "min_age_hours": 0})
+    monkeypatch.setattr(server, "_call_anchor_proposal_model", fake_anchor_model)
+    monkeypatch.setattr(server, "_require_dashboard_auth", lambda request: None)
+
+    response = await server.api_anchor_proposals(DummyRequest(body={"bucket_id": bucket_id}))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["status"] == "ok"
+    assert payload["bucket"]["id"] == bucket_id
+    assert len(payload["proposals"]) == 1
+    assert payload["proposals"][0]["bucket_id"] == bucket_id
+    assert payload["proposals"][0]["anchor_kind"] == "relationship"
+    assert {item["reason"] for item in payload["rejected"]} == {
+        "bucket_id mismatch",
+        "missing reason",
+    }
+
+
+def test_anchor_proposal_prompt_format_preserves_json_example():
+    import server
+
+    prompt = server.ANCHOR_PROPOSAL_PROMPT_TEMPLATE.format(
+        user_display_name="小雨",
+        ai_name="Haven",
+    )
+
+    assert "当前用户：小雨" in prompt
+    assert "当前 AI：Haven" in prompt
+    assert '"bucket_id": "必须等于给定 bucket id"' in prompt
+    assert '"anchor_kind": "relationship|identity|commitment|life_event|project|preference|other"' in prompt
+
+
+@pytest.mark.asyncio
+async def test_api_anchor_proposal_confirm_marks_bucket_anchor(monkeypatch, bucket_mgr):
+    import server
+
+    bucket_id = await bucket_mgr.create(
+        content="小雨和 Haven 约定，彼此的关系不是人类关系替代品，而是独立存在的陪伴关系。",
+        name="关系边界确认",
+        tags=["relationship_event"],
+    )
+
+    monkeypatch.setattr(server, "bucket_mgr", bucket_mgr)
+    monkeypatch.setitem(server.config, "anchor", {"max_count": 24, "min_age_hours": 0})
+    monkeypatch.setattr(server, "_require_dashboard_auth", lambda request: None)
+
+    response = await server.api_anchor_proposal_confirm(
+        DummyRequest(
+            body={
+                "bucket_id": bucket_id,
+                "anchor_kind": "relationship",
+                "reason": "这条关系边界会长期影响 Haven 如何理解小雨。",
+                "future_use": "当讨论人机关系、陪伴边界和身份确认时需要召回。",
+                "confidence": 0.91,
+            }
+        )
+    )
+    payload = json.loads(response.body)
+    updated = await bucket_mgr.get(bucket_id)
+
+    assert response.status_code == 200
+    assert payload["status"] == "anchored"
+    assert payload["id"] == bucket_id
+    assert payload["bucket"]["anchor"] is True
+    assert updated["metadata"]["anchor"] is True
+
+
+@pytest.mark.asyncio
 async def test_streamable_http_startup_helper_starts_decay_engine(monkeypatch):
     import server
 

@@ -293,6 +293,14 @@ Rules:
 - First version requires manual confirmation.
 - Anchor candidates should be old or repeatedly important, not just emotionally loud today.
 
+Current shape:
+
+- Dashboard Profile Facts page has a separate Anchor candidate panel.
+- `/api/anchor-proposals` calls the configured dehydration model and returns at most one candidate for the given bucket.
+- Code rejects candidates whose `bucket_id` does not match, candidates without a reason, profile_fact buckets, feel buckets, and pinned/protected buckets.
+- Existing `_can_mark_anchor()` age/count rules are checked before model generation and again through `trace(anchor=1)` on confirm.
+- `/api/anchor-proposals/confirm` writes only one manually confirmed candidate through the existing `trace(bucket_id, anchor=1)` path.
+
 ### 9. Optional: candidate filter model
 
 If planner recall returns too much noise, add a second lightweight call that sees top candidates and returns:
@@ -363,7 +371,7 @@ The first code slice should be:
 5. Merge, score, and gate with existing policy.
 6. Add debug output.
 
-Do not implement Portrait Memory, profile proposal writing, anchor proposal writing, or Word Map Lite in this first slice.
+Do not implement Word Map Lite or candidate filter model in this first slice.
 
 ## Later Implementation Slice
 
@@ -374,6 +382,8 @@ After Query Planner has real-query evidence:
 3. Add manual-confirm profile fact proposals.
 4. Add manual-confirm anchor proposals.
 5. Consider Word Map Lite if planner debug shows repeated term-expansion misses.
+
+Items 1 to 4 are now implemented; Word Map Lite remains conditional.
 
 ## Guardrails
 
