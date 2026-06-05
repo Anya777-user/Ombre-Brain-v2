@@ -513,6 +513,26 @@ def test_gateway_skips_persona_injection_when_persona_disabled(monkeypatch, test
     assert content.endswith("你好")
 
 
+@pytest.mark.asyncio
+async def test_gateway_skips_persona_post_update_when_persona_disabled(
+    monkeypatch, test_config, bucket_mgr
+):
+    _, service, _, _ = _build_service(monkeypatch, _gateway_config(test_config), bucket_mgr)
+    persona_engine = RecordingPersonaEngine()
+    persona_engine.enabled = False
+    service.persona_engine = persona_engine
+
+    await service._update_persona_after_assistant_message(
+        "sess-disabled",
+        "你好",
+        {"role": "assistant", "content": "我在。"},
+        [],
+    )
+
+    assert persona_engine.post_calls == []
+    assert not persona_engine.post_event.is_set()
+
+
 def test_gateway_accepts_anthropic_messages(monkeypatch, test_config, bucket_mgr):
     app, _, state_store, captured = _build_service(
         monkeypatch,

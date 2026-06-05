@@ -1243,6 +1243,12 @@ class GatewayService:
         assistant_message: dict[str, Any] | None,
         recalled_ids: list[str],
     ) -> None:
+        if not self.persona_engine.enabled:
+            logger.info(
+                "Persona post-reply update skipped | session=%s reason=disabled",
+                session_id,
+            )
+            return
         if not user_message.strip():
             logger.info(
                 "Persona post-reply update skipped | session=%s reason=missing_user_message",
