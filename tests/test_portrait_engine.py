@@ -243,6 +243,98 @@ async def test_daily_portrait_can_auto_initial_when_enabled(tmp_path, test_confi
     assert state_path.exists()
 
 
+@pytest.mark.asyncio
+async def test_daily_portrait_skips_date_already_present_in_runs(tmp_path, test_config, bucket_mgr):
+    await bucket_mgr.create(
+        content="### moment\n\n已有同一天画像 run 时，非 force 不应再生成。",
+        name="portrait duplicate date guard",
+        tags=["project_event"],
+        domain=["记忆系统"],
+        created="2026-06-07T10:00:00+08:00",
+        updated_at="2026-06-07T10:00:00+08:00",
+    )
+    state_path = tmp_path / "state" / "portrait_state.json"
+    engine = DailyPortraitMaintainer(
+        {
+            **test_config,
+            "portrait": {
+                "enabled": True,
+                "auto_enabled": True,
+                "daily_enabled": True,
+                "state_path": str(state_path),
+            },
+        }
+    )
+    state = engine._empty_state()
+    state["last_run_date"] = "2026-06-06"
+    state["runs"].append(
+        {
+            "date": "2026-06-07",
+            "created_at": "2026-06-07T03:00:00+00:00",
+            "initial": True,
+            "material_count": 1,
+            "persona_event_count": 0,
+            "patch_counts": {},
+            "rejected_count": 0,
+            "model": "test",
+        }
+    )
+    engine.save_state(state)
+
+    async def fail_patch(*_args, **_kwargs):
+        raise AssertionError("existing run date should not regenerate")
+
+    engine._generate_patch = fail_patch
+    result = await engine.maintain_daily(
+        bucket_mgr,
+        force=False,
+        now=datetime(2026, 6, 7, 23, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+
+    assert result["status"] == "exists"
+    assert result["date"] == "2026-06-07"
+
+
+@pytest.mark.asyncio
+async def test_portrait_run_due_does_not_backfill_before_newer_manual_run(tmp_path, test_config, bucket_mgr):
+    state_path = tmp_path / "state" / "portrait_state.json"
+    engine = DailyPortraitMaintainer(
+        {
+            **test_config,
+            "portrait": {
+                "enabled": True,
+                "auto_enabled": True,
+                "daily_enabled": True,
+                "daily_hour": 4,
+                "state_path": str(state_path),
+            },
+        }
+    )
+    state = engine._empty_state()
+    state["last_run_date"] = "2026-06-07"
+    state["runs"].append(
+        {
+            "date": "2026-06-07",
+            "created_at": "2026-06-07T03:00:00+00:00",
+            "initial": True,
+            "material_count": 160,
+            "persona_event_count": 24,
+            "patch_counts": {},
+            "rejected_count": 0,
+            "model": "test",
+        }
+    )
+    engine.save_state(state)
+    engine._local_now = lambda now=None: datetime(2026, 6, 7, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    async def fail_daily(*_args, **_kwargs):
+        raise AssertionError("scheduler should not run an older daily target after a newer manual run")
+
+    engine.maintain_daily = fail_daily
+
+    assert await engine.run_due(bucket_mgr) == []
+
+
 def test_portrait_mid_term_rewrite_requires_staging_evidence(tmp_path, test_config):
     state_path = tmp_path / "state" / "portrait_state.json"
     engine = DailyPortraitMaintainer(

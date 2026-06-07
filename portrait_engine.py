@@ -27,7 +27,7 @@ PATCH_KEYS = (
 
 
 PORTRAIT_PROMPT_TEMPLATE = """你是 {ai_name}，正在维护你和 {user_display_name} 的换窗画像。
-只根据证据写观察，不补常识，不把短期情绪当长期事实。
+只根据证据写观察，不补常识，不把短期情绪当长期事实，也不要把关系气候误写成用户事实。
 
 你会收到 previous_portrait 和 memory_materials。请输出纯 JSON：
 {{
@@ -58,6 +58,9 @@ PORTRAIT_PROMPT_TEMPLATE = """你是 {ai_name}，正在维护你和 {user_displa
 - user 只写 {user_display_name} 的证据化状态、偏好、边界、最近在做的事。
 - persona 写 {ai_name} 的自我理解和回复姿态。
 - relationship 写这段关系的边界、里程碑和气候。
+- 不要滥用“{user_display_name}喜欢...”。只有证据明确表达稳定偏好、反复选择或清楚的喜欢时才写 user 偏好；关系天气、撒娇、确认、互动模式优先写 relationship。
+- initial_run=true 时，add_recent 只放真正短期/当天观察；高置信、能跨窗口携带的观察应放入 move_to_staging。每个 scope 尽量给 1-3 条 move_to_staging，除非证据不足。
+- rewrite_mid_term 可综合 staging_pool 或本次 move_to_staging；初次初始化时，如果本次 move_to_staging 已足够支撑，可以写一条谨慎的 mid_term。
 - profile_fact_candidate 只提候选，不确认、不写入长期 profile_fact。
 - stable_candidate 只提候选，不直接覆盖 stable portrait。
 - rewrite_mid_term 只能综合 staging_pool 里的观察，或本次明确 move_to_staging 的观察；不要直接把当天新材料写成 mid_term。
@@ -132,7 +135,7 @@ class DailyPortraitMaintainer:
             or ""
         ).strip()
         self.temperature = float(cfg.get("temperature", reflection_cfg.get("temperature", 0.1)))
-        self.max_tokens = int(cfg.get("max_tokens", 900))
+        self.max_tokens = int(cfg.get("max_tokens", 1400))
         self.state_path = self._state_path(cfg.get("state_path", ""))
         self.client = None
         if self.enabled and self.api_key and self.base_url:
@@ -154,7 +157,7 @@ class DailyPortraitMaintainer:
         now_local = self._local_now(now)
         date_key = now_local.date().isoformat()
         state = self.load_state()
-        if state.get("last_run_date") == date_key and not force:
+        if self._has_run_for_date(state, date_key) and not force:
             return {
                 "status": "exists",
                 "date": date_key,
@@ -190,7 +193,6 @@ class DailyPortraitMaintainer:
         normalized_patch, rejected = self._normalize_patch(raw_patch, materials)
         next_state = self._apply_patch(state, normalized_patch, date_key)
         next_state["updated_at"] = self._now_utc()
-        next_state["last_run_date"] = date_key
         next_state.setdefault("runs", []).append(
             {
                 "date": date_key,
@@ -204,6 +206,12 @@ class DailyPortraitMaintainer:
             }
         )
         next_state["runs"] = next_state["runs"][-90:]
+        run_dates = [
+            str(row.get("date") or "")
+            for row in next_state.get("runs", [])
+            if isinstance(row, dict) and str(row.get("date") or "")
+        ]
+        next_state["last_run_date"] = max(run_dates) if run_dates else date_key
         self.save_state(next_state)
         return {
             "status": "updated" if state.get("runs") else "initialized",
@@ -225,6 +233,15 @@ class DailyPortraitMaintainer:
         if not self.daily_enabled or now_local.hour < self.daily_hour:
             return []
         daily_date = (now_local - timedelta(days=1)).date()
+        state = self.load_state()
+        target_date = daily_date.isoformat()
+        run_dates = [
+            str(row.get("date") or "")
+            for row in state.get("runs", [])
+            if isinstance(row, dict) and str(row.get("date") or "")
+        ]
+        if any(date >= target_date for date in run_dates):
+            return []
         daily_target = datetime.combine(daily_date, time.max, tzinfo=self.tz)
         return [
             await self.maintain_daily(
@@ -234,6 +251,12 @@ class DailyPortraitMaintainer:
                 now=daily_target,
             )
         ]
+
+    def _has_run_for_date(self, state: dict, date_key: str) -> bool:
+        for row in state.get("runs", []) or []:
+            if isinstance(row, dict) and str(row.get("date") or "") == date_key:
+                return True
+        return str(state.get("last_run_date") or "") == date_key
 
     def load_state(self) -> dict:
         state = self._empty_state()
