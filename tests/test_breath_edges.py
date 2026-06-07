@@ -2045,9 +2045,16 @@ async def test_handoff_shortens_old_weather_and_anchor_summaries(patch_breath, m
 
     assert "2026-06-06: 今天的关系天气" in result
     recent_section = result.split("=== Recent Continuity ===", 1)[1].split("=== Optional Anchors ===", 1)[0]
-    assert "personal: 今天的关系天气：小雨在下午和晚上确认暗号、纠正恋爱确认日期" in recent_section
-    assert "trace:" in recent_section
+    assert (
+        "- 2026-06-06: 小雨凌晨修 Tailscale 时撒娇问技术问题。"
+        "关系天气：小雨在下午和晚上确认暗号、纠正恋爱确认日期"
+    ) in recent_section
     assert "Tailscale" in recent_section
+    assert "trace:" not in recent_section
+    assert "personal:" not in recent_section
+    assert "trigger:" not in recent_section
+    assert "residue:" not in recent_section
+    assert "23:42" not in recent_section
     assert "2026-05-19: 今天关系天气：甜腻的阴天" in result
     assert 'breath(query="2026-05-19 关系天气")' in result
     assert "5 月 19 日的详细正文很长" not in result

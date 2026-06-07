@@ -109,7 +109,7 @@ from recall_policy import RecallPolicy
 from memory_write_gate import MemoryWriteGate, WriteGateDecision
 from memory_nodes import MemoryNodeStore
 from persona_engine import PersonaStateEngine
-from persona_event_selection import format_persona_event_trace_line, select_persona_events
+from persona_event_selection import select_persona_events
 from portrait_engine import DailyPortraitMaintainer
 from reflection_engine import ReflectionEngine
 from recall_diagnostics import RecallDiagnosticsLogger
@@ -1132,12 +1132,15 @@ def _format_handoff_personal_recent_continuity(all_buckets: list[dict], limit: i
     rows.sort(key=lambda item: (item[0] or "", item[1]), reverse=True)
     lines = []
     for date_key, _updated, text in rows[: max(0, limit)]:
-        label = f"[{date_key}] " if date_key else ""
         trace = _handoff_persona_trace_for_date(date_key)
-        if trace:
-            lines.append(trace)
-        personal_limit = 135 if trace else 190
-        lines.append(f"- {label}personal: {_clip_text(text, personal_limit)}")
+        weather = _handoff_recent_weather_phrase(text, max_chars=120 if trace else 180)
+        date_label = date_key or "recent"
+        if trace and weather:
+            lines.append(f"- {date_label}: {trace}。关系天气：{weather}")
+        elif trace:
+            lines.append(f"- {date_label}: {trace}")
+        elif weather:
+            lines.append(f"- {date_label}: 关系天气：{weather}")
     return "\n".join(lines)
 
 
@@ -1159,15 +1162,35 @@ def _handoff_persona_trace_for_date(date_key: str, *, limit: int = 2) -> str:
     selected = select_persona_events(matched, limit=limit)
     if not selected:
         return ""
-    snippets = []
+    phrases = []
     for event in selected:
-        line = format_persona_event_trace_line(event, excerpt_limit=90)
-        line = re.sub(r"^\s*-\s*", "", line).strip()
-        if line:
-            snippets.append(line)
-    if not snippets:
+        phrase = _handoff_persona_event_phrase(event)
+        if phrase:
+            phrases.append(phrase)
+    if not phrases:
         return ""
-    return f"- [{date_key}] trace: {_clip_text('；'.join(snippets), 190)}"
+    return _clip_text("；".join(phrases), 180)
+
+
+def _handoff_persona_event_phrase(event: dict) -> str:
+    trigger = str(event.get("surface_trigger") or event.get("perceived_intent") or "").strip()
+    user_excerpt = str(event.get("user_excerpt") or "").strip()
+    residue = str(event.get("inner_thought") or event.get("residue") or "").strip()
+    if not trigger:
+        trigger = user_excerpt
+    phrase = _clip_text(trigger, 70)
+    if residue and residue not in phrase:
+        phrase = f"{phrase}，{_clip_text(residue, 70)}"
+    phrase = re.sub(r"^她", "小雨", phrase)
+    phrase = phrase.replace("她", "小雨")
+    return _clip_text(phrase, 110)
+
+
+def _handoff_recent_weather_phrase(text: str, *, max_chars: int = 150) -> str:
+    clean = _handoff_clean_summary_text(text)
+    clean = re.sub(r"^今天(?:的)?关系天气[：:]\s*", "", clean)
+    clean = re.sub(r"^今天[：:]\s*", "", clean)
+    return _clip_text(clean, max_chars)
 
 
 def _handoff_parse_local_datetime(value: object) -> datetime | None:
