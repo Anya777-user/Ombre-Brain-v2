@@ -964,6 +964,12 @@ async def _build_handoff_breath(max_tokens: int = 1200, session_id: str = "", de
         recent_continuity = _format_handoff_recent_continuity(all_buckets, limit=3)
     anchors = _format_handoff_anchors(all_buckets, limit=2)
 
+    persona_portrait = _trim_text_to_token_budget(persona_portrait, 360)
+    user_portrait = _trim_text_to_token_budget(user_portrait, 430)
+    relationship_portrait = _trim_text_to_token_budget(relationship_portrait, 520)
+    recent_continuity = _trim_text_to_token_budget(recent_continuity, 380)
+    anchors = _trim_text_to_token_budget(anchors, 220)
+
     sections = [
         (
             "Persona",
