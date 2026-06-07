@@ -13,7 +13,7 @@
 - 旧 `origin/main` 备份：`archive/main-before-p0-20260607` = `bc90714b4c692355bcd522678d2adc4779944bfc`
 - 旧 `shadow/main` 备份：`archive/main-before-p0-20260607` = `ed3e514b4fd51ead665044527ca0ba7b7741e767`
 
-当前本地主工作区仍在 `feature/memory-diffusion-p0`，但 `origin/main`、`origin/feature/memory-diffusion-p0`、`shadow/main`、`shadow/feature/memory-diffusion-p0` 都指向同一个提交。工作区只剩未跟踪临时目录：`.codex-remote-attachments/`、`output/`、`tmp/`。
+当前本地主工作区仍在 `feature/memory-diffusion-p0`。本交接文档自身提交后，`origin/main`、`origin/feature/memory-diffusion-p0`、`shadow/main`、`shadow/feature/memory-diffusion-p0` 应继续保持同一 HEAD；下个窗口先用 `git fetch --all --prune` 和 `git ls-remote` 实时确认，不要把文档里的旧 SHA 当作最新指针。工作区只剩未跟踪临时目录：`.codex-remote-attachments/`、`output/`、`tmp/`。
 
 ## 已完成
 
