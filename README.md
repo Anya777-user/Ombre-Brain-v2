@@ -256,6 +256,7 @@ cp config.example.yaml /srv/ombre-brain/config.yaml
 - `memory_diffusion.*`：控制图扩散、链式扩散、hop 衰减和关系权重；默认启用普通短扩散，可靠链式扩散默认关闭。
 - `word_map.*`：派生词图诊断，默认关闭，不自动注入 Gateway。
 - `embedding.model/base_url`：embedding 模型和地址；key 推荐放 `.env` 的 `OMBRE_EMBEDDING_API_KEY`。
+- `reranker.model/base_url`：召回候选重排序模型；默认 `Qwen/Qwen3-Reranker-4B`，`base_url` 留空时复用 embedding 地址，key 优先读 `OMBRE_RERANKER_API_KEY`，未填则复用 `OMBRE_EMBEDDING_API_KEY`。
 - `write_path.semantic_search_timeout_seconds`：写入时找“只读相关旧记忆”的语义检索最多等待几秒，默认 `3`。网络慢时会跳过语义部分，不影响写入成功。
 - `dream.*`：夜梦后台配置；`surface_enabled` 管 `breath()` 浮现，`inject_enabled` 管 Gateway Dream Context 注入，默认不注入。
 - `identity.*`：改 AI 名、前端用户作者名、prompt 里的用户称呼和亲密称呼。
@@ -276,6 +277,10 @@ OMBRE_EMBEDDING_API_KEY=
 OMBRE_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
 OMBRE_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B
 OMBRE_EMBEDDING_ENABLED=true
+OMBRE_RERANKER_API_KEY=
+OMBRE_RERANKER_BASE_URL=
+OMBRE_RERANKER_MODEL=Qwen/Qwen3-Reranker-4B
+OMBRE_RERANKER_ENABLED=true
 
 OMBRE_GATEWAY_TOKEN=
 
@@ -313,6 +318,11 @@ embedding:
   enabled: true
   model: "Qwen/Qwen3-Embedding-0.6B"
   base_url: "https://api.siliconflow.cn/v1"
+
+reranker:
+  enabled: true
+  model: "Qwen/Qwen3-Reranker-4B"
+  base_url: ""  # 留空时复用 embedding.base_url / OMBRE_EMBEDDING_API_KEY
 ```
 
 不要写成：
@@ -1203,7 +1213,7 @@ docker compose -f compose.hk.yml exec -T ombre-brain python scripts/cleanup_migr
 
 脚本用途：
 
-- `scripts/one_click.sh`：新手入口。菜单包含首次部署、更新版本、错误排查、备份当前部署、删除旧备份包、记忆桶格式转换、向量库相关、从原版 Ombre-Brain 迁移。首次部署会先选择 `VPS / Windows / Python 直跑`，再选择 `只用 Ombre MCP 部分 / 部署全部`。只用 MCP 时只启动 MCP 工具和 Dashboard，不配置、不启动 Gateway；部署全部时才会继续填写 Gateway 上游、token 和 OpenAI-compatible 客户端地址。VPS 和 Windows 走 Docker 并生成本机专用的 `compose.local.yml`；Python 直跑适合手机 Termux、Linux、Windows 无 Docker，会生成 `start_local.sh` 和 `start_local.ps1`，同时保留 `start_mobile.sh` 兼容旧教程。模型配置和 key 会交互式填写，key 写入 `.env`，非密钥配置写入 `config.yaml`；生成的 config 已包含当前 main 的 memory diffusion、query planner、portrait、dream inject 默认值和自动写入门卫。最后生成 `connection_guide.txt`，除了 URL / token / header，也会写 handoff、Just Now、Darkroom、Dream Context 和 Dashboard 批量删除提示。
+- `scripts/one_click.sh`：新手入口。菜单包含首次部署、更新版本、错误排查、备份当前部署、删除旧备份包、记忆桶格式转换、向量库相关、从原版 Ombre-Brain 迁移。首次部署会先选择 `VPS / Windows / Python 直跑`，再选择 `只用 Ombre MCP 部分 / 部署全部`。只用 MCP 时只启动 MCP 工具和 Dashboard，不配置、不启动 Gateway；部署全部时才会继续填写 Gateway 上游、token 和 OpenAI-compatible 客户端地址。VPS 和 Windows 走 Docker 并生成本机专用的 `compose.local.yml`；Python 直跑适合手机 Termux、Linux、Windows 无 Docker，会生成 `start_local.sh` 和 `start_local.ps1`，同时保留 `start_mobile.sh` 兼容旧教程。模型配置和 key 会交互式填写，key 写入 `.env`，非密钥配置写入 `config.yaml`；embedding 启用后会继续提示 reranker 模型，默认 `Qwen/Qwen3-Reranker-4B`，通常复用 embedding 的 SiliconFlow base_url/key，也可单独填写 `OMBRE_RERANKER_API_KEY`。生成的 config 已包含当前 main 的 memory diffusion、query planner、portrait、dream inject 默认值和自动写入门卫。最后生成 `connection_guide.txt`，除了 URL / token / header，也会写 handoff、Just Now、Darkroom、Dream Context 和 Dashboard 批量删除提示。
 - `./ob`：短入口，等同于 `bash scripts/one_click.sh`。也可以在菜单里选“安装短命令 ob”，写入当前用户的 shell 配置；之后任意位置输入 `ob` 就能打开菜单。
 - Windows 上运行 `.sh` 脚本建议打开 Git Bash 再执行；不要在 PowerShell 里直接输 `bash ...`，否则少数机器可能会调用到 WSL 的 `bash.exe`。
 - `scripts/doctor.sh`：适合“更新后不能用、端口不通、怀疑 key 没配好”。它只读检查，不会重启服务、不改配置、不打印 key。会提示 `.env/config.yaml`、Docker Compose 状态、健康接口、容器内环境变量和最近错误日志；如果 compose 里没有启用 Gateway，会自动跳过 Gateway token 检查。
