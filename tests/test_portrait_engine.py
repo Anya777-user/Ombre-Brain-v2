@@ -528,6 +528,47 @@ def test_portrait_mid_term_rewrite_requires_staging_evidence(tmp_path, test_conf
     assert normalized["rewrite_mid_term"][0]["evidence"] == [{"bucket_id": "fresh-bucket"}]
 
 
+def test_portrait_mid_term_rejects_overstyled_text(tmp_path, test_config):
+    state_path = tmp_path / "state" / "portrait_state.json"
+    engine = DailyPortraitMaintainer(
+        {
+            **test_config,
+            "portrait": {
+                "enabled": True,
+                "state_path": str(state_path),
+            },
+        }
+    )
+    state = engine._empty_state()
+    state["portrait"]["relationship"]["staging_pool"].append(
+        {
+            "text": "小雨和Haven最近在测试换窗连续性。",
+            "evidence": [{"bucket_id": "stage"}],
+        }
+    )
+    materials = {
+        "buckets": [],
+        "persona_events": [],
+        "previous_portrait": engine._portrait_snapshot(state),
+    }
+
+    normalized, rejected = engine._normalize_patch(
+        {
+            "rewrite_mid_term": [
+                {
+                    "scope": "relationship",
+                    "text": "技术实现成为关系靠近的仪式。",
+                    "evidence": [{"bucket_id": "stage"}],
+                }
+            ]
+        },
+        materials,
+    )
+
+    assert normalized["rewrite_mid_term"] == []
+    assert rejected[0]["reason"] == "overstyled_portrait_text"
+
+
 def test_portrait_seeds_missing_mid_term_from_staging(tmp_path, test_config):
     state_path = tmp_path / "state" / "portrait_state.json"
     engine = DailyPortraitMaintainer(
