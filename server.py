@@ -6282,6 +6282,7 @@ async def darkroom_enter(
     mood: str = "",
     tags: str = "",
     source: str = "mcp",
+    visibility: str = "active",
 ) -> dict:
     """写入一段未显影的私密反思；返回门口状态，不回显 note 正文。"""
     try:
@@ -6292,6 +6293,7 @@ async def darkroom_enter(
             tags=tags,
             source=source,
             mode=mode,
+            visibility=visibility,
         )
     except ValueError as exc:
         return {"status": "error", "error": str(exc)}

@@ -27,7 +27,7 @@
 - content 分段格式：### moment（事件事实）/ ### original（原话证据）/ ### reflection（理解和回应规则）/ ### followup（后续待办）/ ### affect_anchor（只放和弦温度线，不放事实）。没有的部分不写。
 
 暗房：
-- 未想透、不该给用户看、不该进普通记忆的内在反思：darkroom_enter(note=...)。
+- 未想透、不该给用户看、不该进普通记忆的内在反思：darkroom_enter(note=..., visibility="active")，visibility 可用 active / archived / retracted。
 - 外部平台只暴露 darkroom_enter。没有可读暗房正文的工具，也没有显影/释放工具。
 - darkroom_enter 只返回门口事件和状态，不回显 note 正文。
 

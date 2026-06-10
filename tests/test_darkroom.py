@@ -96,6 +96,63 @@ def test_darkroom_release_explicitly_returns_content(tmp_path):
     assert store.status()["released_count"] == 1
 
 
+def test_darkroom_status_defaults_to_active_entries(tmp_path):
+    store = _store(tmp_path)
+    active = store.enter("active door note", completeness=0.3)
+    archived = store.enter("archived door note", completeness=0.9, visibility="archived")
+    retracted = store.enter("retracted door note", completeness=1.0, visibility="retracted")
+
+    status = store.status()
+
+    assert active["visibility"] == "active"
+    assert archived["visibility"] == "archived"
+    assert retracted["visibility"] == "retracted"
+    assert status["count"] == 1
+    assert status["last_entry_id"] == active["entry_id"]
+    assert status["last_completeness"] == 0.3
+    assert "archived door note" not in str(status)
+    assert "retracted door note" not in str(status)
+
+
+def test_darkroom_release_latest_skips_archived_and_retracted(tmp_path):
+    store = _store(tmp_path)
+    active_secret = "active release note"
+    store.enter(active_secret, completeness=0.7, tags="ready")
+    store.enter("archived release note", completeness=1.0, visibility="archived")
+    store.enter("retracted release note", completeness=1.0, visibility="retracted")
+
+    released = store.release("latest", reason="release latest active")
+
+    assert released["status"] == "released"
+    assert released["content"] == active_secret
+    assert store.status()["released_count"] == 1
+
+
+def test_darkroom_legacy_entries_without_visibility_are_active(tmp_path):
+    store = _store(tmp_path)
+    legacy = {
+        "id": "dr_legacy",
+        "created_at": "2026-06-10T12:00:00+08:00",
+        "note": "legacy active note",
+        "mode": "continue",
+        "completeness": 0.8,
+        "previous_entry_id": "",
+        "previous_completeness": None,
+        "continuation_anchor": {},
+        "mood": "old",
+        "tags": ["legacy"],
+        "source": "test",
+    }
+    store._append_jsonl_unlocked(store.entries_path, legacy)
+
+    status = store.status()
+    released = store.release("latest", reason="legacy active")
+
+    assert status["count"] == 1
+    assert status["last_entry_id"] == "dr_legacy"
+    assert released["content"] == "legacy active note"
+
+
 def test_darkroom_rejects_empty_note(tmp_path):
     store = _store(tmp_path)
 
