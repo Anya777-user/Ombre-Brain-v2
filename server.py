@@ -922,18 +922,6 @@ async def _build_handoff_breath(max_tokens: int = 1200, session_id: str = "", de
         logger.warning("Handoff breath bucket list failed / handoff 列桶失败: %s", e)
         all_buckets = []
 
-    session_id = str(
-        session_id
-        or config.get("gateway", {}).get("default_session_id")
-        or "xiaoyu-main"
-    ).strip()
-    persona_block = ""
-    try:
-        state = persona_engine.get_current_state(session_id)
-        persona_block = persona_engine.format_state_block(state)
-    except Exception as e:
-        logger.warning("Handoff persona state failed / handoff persona 状态失败: %s", e)
-
     try:
         portrait_sections = portrait_engine.build_handoff_sections(max_recent_items=4)
     except Exception as e:
@@ -954,11 +942,7 @@ async def _build_handoff_breath(max_tokens: int = 1200, session_id: str = "", de
             part for part in [relationship_portrait, relationship_weather] if part.strip()
         )
 
-    persona_portrait = "\n".join(
-        part
-        for part in [persona_block, str(portrait_sections.get("persona") or "").strip()]
-        if part.strip()
-    )
+    persona_portrait = str(portrait_sections.get("persona") or "").strip()
     portrait_recent_continuity = str(portrait_sections.get("recent_continuity") or "").strip()
     live_recent_continuity = _format_handoff_personal_recent_continuity(all_buckets, limit=3)
     if _handoff_recent_continuity_is_natural(portrait_recent_continuity):
@@ -988,8 +972,7 @@ async def _build_handoff_breath(max_tokens: int = 1200, session_id: str = "", de
     sections = [
         (
             "Persona",
-            persona_portrait
-            or "No maintained persona portrait yet; use current system identity and reply posture.",
+            persona_portrait,
         ),
         (
             "User Portrait",

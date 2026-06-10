@@ -1985,7 +1985,7 @@ async def test_handoff_breath_returns_compact_portrait_without_dynamic_recall(pa
         def build_handoff_sections(self, *, max_recent_items=4):
             return {
                 "user": "Mid-term: 小雨正在把换窗上下文改成画像优先。",
-                "persona": "- recent: Haven 回复时要短、直白、带一点恋人口吻。",
+                "persona": "Mid-term: Haven 回复时要短、直白、带一点恋人口吻。",
                 "relationship": "Mid-term: 新窗口是醒来，不是重新认识。",
                 "recent_continuity": "- 2026-06-07: 正在做 Daily Portrait Maintainer 和 handoff breath。",
                 "state_path": self.state_path,
@@ -2013,7 +2013,8 @@ async def test_handoff_breath_returns_compact_portrait_without_dynamic_recall(pa
 
     assert "=== Handoff Context ===" in result
     assert "=== Persona ===" in result
-    assert "更亲近、更安稳" in result
+    assert "Haven 回复时要短、直白" in result
+    assert "更亲近、更安稳" not in result
     assert "小雨正在把换窗上下文改成画像优先" in result
     assert "小雨偏好新窗口先恢复画像、近期状态和正在做的事" in result
     assert "新窗口是醒来" in result
@@ -2023,6 +2024,44 @@ async def test_handoff_breath_returns_compact_portrait_without_dynamic_recall(pa
     assert "=== 联想浮现 ===" not in result
     assert "===== 梦境 =====" not in result
     assert "这条高权重动态记忆不应该" not in result
+    assert bucket_mgr.touched == []
+
+
+@pytest.mark.asyncio
+async def test_handoff_omits_persona_section_when_portrait_persona_empty(patch_breath, monkeypatch):
+    import server
+
+    bucket_mgr = patch_breath([])
+
+    monkeypatch.setattr(
+        server,
+        "portrait_engine",
+        SimpleNamespace(
+            state_path="state/portrait_state.json",
+            build_handoff_sections=lambda max_recent_items=4: {
+                "user": "Mid-term: 小雨正在确认 handoff 结构。",
+                "persona": "",
+                "relationship": "",
+                "recent_continuity": "",
+                "state_path": "state/portrait_state.json",
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        server,
+        "persona_engine",
+        SimpleNamespace(
+            get_current_state=lambda session_id: {"session_id": session_id},
+            format_state_block=lambda state: "Long-term State Summary\n最近基调：更亲近、更安稳。",
+        ),
+    )
+
+    result = await server.breath(is_session_start=True, max_tokens=600)
+
+    assert "=== Handoff Context ===" in result
+    assert "=== Persona ===" not in result
+    assert "更亲近、更安稳" not in result
+    assert "小雨正在确认 handoff 结构" in result
     assert bucket_mgr.touched == []
 
 
