@@ -3589,6 +3589,12 @@ def test_gateway_source_record_title_match_with_content_fragment_can_diffuse(
         name="无关大背景",
         hours_ago=24,
     )
+    generic_id = _create_bucket(
+        bucket_mgr,
+        content="### moment\nHaven 和小雨讨论过记忆工具，这条只有参与者和工具泛词。",
+        name="Haven终于能用记忆工具",
+        hours_ago=24,
+    )
     cfg = _gateway_config(
         test_config,
         recent_context_budget=0,
@@ -3629,6 +3635,8 @@ def test_gateway_source_record_title_match_with_content_fragment_can_diffuse(
     assert source_id in debug_payload["recalled_bucket_ids"]
     assert target_id in debug_payload["diffused_bucket_ids"]
     assert noise_id not in debug_payload["diffused_bucket_ids"]
+    assert generic_id not in debug_payload["diffused_bucket_ids"]
+    assert generic_id not in debug_payload["diffused_candidate_bucket_ids"]
     assert any(
         "source_record_fragment_topic_evidence" in str(row.get("path", {}))
         for row in debug_payload["diffused_moment_debug"]

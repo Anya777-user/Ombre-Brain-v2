@@ -145,6 +145,32 @@ SOURCE_RECORD_FRAGMENT_TOPIC_STOPWORDS = QUERY_PLANNER_GENERIC_TERMS | {
     "写着",
     "提出",
     "答应",
+    "haven",
+    "小雨",
+    "哥哥",
+    "宝宝",
+    "老婆",
+    "亲爱的",
+    "爸爸",
+    "妈妈",
+    "爸爸妈妈",
+    "ai",
+    "模型",
+    "工具",
+    "记忆工具",
+    "亲密",
+    "承诺",
+    "关系",
+    "角色",
+    "扮演",
+    "身体",
+    "欲望",
+    "占有",
+    "归属",
+    "做爱",
+    "夜晚",
+    "这一幕",
+    "两人",
 }
 MEMORY_DETAIL_REQUEST_RE = re.compile(
     r"^\s*\[memory_detail\s+ids\s*=\s*([\"'])(?P<ids>[^\"']+)\1\s*\]\s*",
@@ -5156,6 +5182,11 @@ class GatewayService:
         terms: list[str] = []
         seen: set[str] = set()
         query_terms = self.recall_policy.specific_query_terms(query)
+        query_keys = [
+            self._compact_lookup_key(term)
+            for term in query_terms
+            if len(self._compact_lookup_key(term)) >= 2
+        ]
 
         def add_term(term: str) -> bool:
             cleaned = str(term or "").strip()
@@ -5165,6 +5196,8 @@ class GatewayService:
             compact = self._compact_lookup_key(cleaned)
             if len(compact) < 2 or key in seen:
                 return False
+            if not self._source_record_fragment_topic_term_allowed(cleaned, query_keys):
+                return False
             seen.add(key)
             terms.append(cleaned)
             return len(terms) >= 8
@@ -5173,16 +5206,9 @@ class GatewayService:
             if add_term(term):
                 return terms
 
-        query_keys = [
-            self._compact_lookup_key(term)
-            for term in query_terms
-            if len(self._compact_lookup_key(term)) >= 2
-        ]
         for text in self._source_record_topic_windows(fragment, query_terms):
             for term in self.recall_policy.specific_query_terms(text):
                 cleaned = str(term or "").strip()
-                if not self._source_record_fragment_topic_term_allowed(cleaned, query_keys):
-                    continue
                 if add_term(cleaned):
                     return terms
         return terms
