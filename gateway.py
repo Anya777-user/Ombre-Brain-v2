@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import hashlib
 import os
 import re
@@ -1351,9 +1351,6 @@ class GatewayService:
 
     async def handle_dashboard(self, request: Request) -> Response:
         """Proxy GET /dashboard to internal Ombre Brain server."""
-        auth_result = self._authorize(request.headers.get("Authorization", ""))
-        if auth_result is not None:
-            return auth_result
         try:
             upstream_response = await self.http_client.get(
                 "http://127.0.0.1:8000/dashboard",
