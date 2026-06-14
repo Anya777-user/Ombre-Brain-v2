@@ -1118,6 +1118,12 @@ class GatewayService:
                 {"error": {"message": str(exc), "type": "server_error"}},
                 status_code=503,
             )
+        except Exception:
+            logger.exception("CHAT TRACEBACK")
+            return JSONResponse(
+                {"error": {"message": "internal server error", "type": "server_error"}},
+                status_code=500,
+            )
 
         if forward_payload.get("stream") is True:
             try:
