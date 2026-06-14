@@ -1310,6 +1310,39 @@ class GatewayService:
             }
         )
 
+    async def handle_create_memory(self, request: Request) -> Response:
+        """Proxy POST /api/memories to internal Ombre Brain server."""
+        from starlette.responses import JSONResponse as _JSONResponse
+
+        auth_result = self._authorize(request.headers.get("Authorization", ""))
+        if auth_result is not None:
+            return auth_result
+
+        try:
+            body = await request.json()
+        except Exception:
+            return _JSONResponse({"error": "invalid json body"}, status_code=400)
+
+        forward_headers: dict[str, str] = {}
+        for header_name in ("Authorization", "X-Ombre-Token", "X-Api-Key"):
+            value = request.headers.get(header_name)
+            if value:
+                forward_headers[header_name] = value
+
+        try:
+            upstream_response = await self.http_client.post(
+                "http://127.0.0.1:8000/api/memories",
+                json=body,
+                headers=forward_headers,
+                timeout=30.0,
+            )
+            return self._proxy_response(upstream_response)
+        except Exception as exc:
+            return _JSONResponse(
+                {"error": f"internal server unavailable: {exc}"},
+                status_code=502,
+            )
+
     async def handle_upstream_usage_debug(self, request: Request) -> JSONResponse:
         auth_result = self._authorize(request.headers.get("Authorization", ""))
         if auth_result is not None:
@@ -9879,10 +9912,14 @@ def create_gateway_app(
     async def upstream_usage_debug(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_upstream_usage_debug(request)
 
+    async def create_memory(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_create_memory(request)
+
     app = Starlette(
         debug=False,
         routes=[
             Route("/health", health, methods=["GET"]),
+            Route("/api/memories", create_memory, methods=["POST"]),
             Route("/api/config", config_route, methods=["GET", "POST"]),
             Route("/api/debug/injections", injection_debug, methods=["GET"]),
             Route("/api/debug/upstream-usage", upstream_usage_debug, methods=["GET"]),
