@@ -1349,6 +1349,27 @@ class GatewayService:
                 status_code=502,
             )
 
+    async def handle_dashboard(self, request: Request) -> Response:
+        """Proxy GET /dashboard to internal Ombre Brain server."""
+        auth_result = self._authorize(request.headers.get("Authorization", ""))
+        if auth_result is not None:
+            return auth_result
+        try:
+            upstream_response = await self.http_client.get(
+                "http://127.0.0.1:8000/dashboard",
+                timeout=30.0,
+            )
+        except Exception as exc:
+            return JSONResponse(
+                {"error": f"internal server unavailable: {exc}"},
+                status_code=502,
+            )
+        return Response(
+            content=upstream_response.text,
+            status_code=upstream_response.status_code,
+            media_type=upstream_response.headers.get("content-type", "text/html"),
+        )
+
     async def handle_upstream_usage_debug(self, request: Request) -> JSONResponse:
         auth_result = self._authorize(request.headers.get("Authorization", ""))
         if auth_result is not None:
@@ -9923,10 +9944,14 @@ def create_gateway_app(
     async def create_memory(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_create_memory(request)
 
+    async def dashboard(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_dashboard(request)
+
     app = Starlette(
         debug=False,
         routes=[
             Route("/health", health, methods=["GET"]),
+            Route("/dashboard", dashboard, methods=["GET"]),
             Route("/api/memories", create_memory, methods=["POST"]),
             Route("/api/config", config_route, methods=["GET", "POST"]),
             Route("/api/debug/injections", injection_debug, methods=["GET"]),
