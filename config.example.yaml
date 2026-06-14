@@ -9,33 +9,27 @@
 # streamable-http: remote use (HTTP, tunnel/CDN/proxy friendly)
 # stdio: 本地使用（Claude Desktop，直接管道通信）
 # streamable-http: 远程使用（标准 HTTP，对隧道/CDN/代理友好）
-transport: "stdio"
+transport: "streamable-http"
 
 # --- Log level / 日志级别 ---
 log_level: "INFO"
 
 # --- Bucket storage path / 记忆桶存储路径 ---
-# Point this to your Obsidian vault subdirectory, or any local folder
-# 指向你的 Obsidian 仓库子目录，或任意本地文件夹
-# Leave as-is to use the built-in ./buckets/ directory
-# 保持默认则使用内置的 ./buckets/ 目录
-# buckets_dir: "/path/to/your/Obsidian Vault/Ombre Brain"
+buckets_dir: "/data"
 
 # --- Runtime state path / 运行状态路径 ---
-# Stores runtime SQLite state such as Persona State outside bucket sync.
-# 保存 Persona State 等运行时 SQLite 状态，建议放在 buckets 同步目录外。
-# state_dir: "/path/to/ombre-brain/state"
+state_dir: "/data/state"
 
 # --- Identity / 名字口径 ---
 # These names are used in prompts and comment authors. Change this block first
 # when adapting the fork for another person/persona.
 # 这些名字会进入提示词和年轮作者。改给别人用时优先改这一块。
 identity:
-  ai_name: "AI"                 # MCP-authored year rings and assistant wording
-  user_name: "User"             # Dashboard-authored year rings
-  user_display_name: "用户"      # How prompts refer to the human partner
+  ai_name: "Claude"                 # MCP-authored year rings and assistant wording
+  user_name: "Tester"             # Dashboard-authored year rings
+  user_display_name: "测试者"      # How prompts refer to the human partner
   user_aliases:
-    - "对方"
+    - "测试者"
 
 # --- Merge threshold / 桶合并阈值 ---
 # When storing a new memory, if similarity with an existing bucket exceeds
@@ -168,7 +162,7 @@ embedding:
 # Uses the embedding base_url/api_key when these are left empty.
 # 留空时复用 embedding 的 base_url/api_key。
 reranker:
-  enabled: true
+  enabled: false
   model: "Qwen/Qwen3-Reranker-4B"
   base_url: ""
   # api_key: ""                   # Use OMBRE_RERANKER_API_KEY or reuse embedding key
@@ -261,46 +255,24 @@ moment_annotations:
 gateway:
   host: "0.0.0.0"
   port: 8010
-  default_session_id: "main"      # used only by compatible routes when the header is omitted
-  upstream_base_url: "https://api.openai.com/v1"
-  upstream_default_model: "gpt-4.1-mini"
-  upstream_models:
-    - "gpt-4.1-mini"
-    - "gpt-4.1"
-  # Optional prompt cache hints / 可选提示缓存参数
-  # openai: send prompt_cache_key using X-Ombre-Session-Id; leave empty for other providers.
-  # openai: 使用 X-Ombre-Session-Id 发送 prompt_cache_key；其他供应商保持空值。
-  prompt_cache: "openai"
-  # prompt_cache_retention: "24h"  # Optional for supported OpenAI models / 支持模型可选
-  # Optional multi-upstream mode / 可选多上游模式
-  # When upstreams is set, the gateway aggregates all listed models and routes
-  # each request by model name to the matching upstream.
-  # Dict model entries can expose a gateway alias while sending the real model
-  # name to upstream.
-  # 配置 upstreams 后，网关会聚合所有模型，并按模型名路由到对应上游。
-  # models 可用字典写别名：id 是客户端看到的名字，upstream_model 是发给上游的真实名字。
-  # upstreams:
-  #   - name: "deepseek"
-  #     base_url: "https://api.deepseek.com/v1"
-  #     api_key_env: "OMBRE_GATEWAY_DEEPSEEK_API_KEY"
-  #     # Optional fallback keys. Retryable errors switch to the next key.
-  #     # 可选备用 key。遇到可重试错误时自动换下一个 key。
-  #     # api_key_envs:
-  #     #   - "OMBRE_GATEWAY_DEEPSEEK_API_KEY_1"
-  #     #   - "OMBRE_GATEWAY_DEEPSEEK_API_KEY_2"
-  #     default_model: "deepseek-chat"
-  #     prompt_cache: ""  # DeepSeek uses automatic prefix cache / DeepSeek 使用自动前缀缓存
-  #     models:
-  #       - "deepseek-chat"
-  #       - "deepseek-reasoner"
-  #       - id: "deepseek-a/deepseek-v4"
-  #         upstream_model: "deepseek-v4"
-  #   - name: "siliconflow"
-  #     base_url: "https://api.siliconflow.cn/v1"
-  #     api_key_env: "OMBRE_GATEWAY_SILICONFLOW_API_KEY"
-  #     models:
-  #       - "Qwen/Qwen3-32B"
-  #       - "THUDM/GLM-4-32B"
+  default_session_id: "test-main"      # used only by compatible routes when the header is omitted
+  # ── Upstream providers / 上游模型路由 ──
+  # gateway reads upstreams first; falls back to upstream_base_url if empty.
+  upstreams:
+    - name: "deepseek"
+      base_url: "https://api.deepseek.com/v1"
+      api_key_env: "OMBRE_GATEWAY_DEEPSEEK_API_KEY"
+      default_model: "deepseek-chat"
+      prompt_cache: ""
+      models:
+        - "deepseek-chat"
+        - "deepseek-reasoner"
+        - id: "deepseek/deepseek-v4"
+          upstream_model: "deepseek-v4"
+  # ── Fallback single-upstream mode / 回退单上游模式 ──
+  upstream_base_url: ""
+  upstream_default_model: ""
+  prompt_cache: ""
   head_recent_hours: 72
   recent_context_reentry_idle_hours: 24
   recent_context_cooldown_hours: 6
@@ -449,7 +421,7 @@ memory_relevance:
 # 追踪缓慢人格变化、关系状态，以及按会话保存的短期情绪。
 persona:
   enabled: true
-  profile_id: "haven_xiaoyu"
+  profile_id: "railway-test"
   mode: "llm"
   base_url: "https://api.deepseek.com/v1"
   model: "deepseek-chat"
@@ -585,7 +557,7 @@ portrait:
 # Generates latent dreams in the background. Dream bodies stay private; Dashboard only
 # shows that a dream happened, and breath() may surface one matching dream later.
 dream:
-  enabled: true
+  enabled: false
   auto_enabled: true
   surface_enabled: true
   inject_enabled: false             # true lets Gateway quietly inject one resonant dream as Dream Context
