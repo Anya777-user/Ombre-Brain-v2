@@ -7895,7 +7895,10 @@ async def api_create_memory(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     try:
+        raw_body = await request.body()
+        logger.info("DIAG RAW HTTP BODY BYTES: %r", raw_body[:500])
         body = await request.json()
+        logger.info("DIAG BODY JSON keys: %s", sorted(body.keys()) if isinstance(body, dict) else type(body).__name__)
     except Exception:
         return JSONResponse({"error": "invalid json body"}, status_code=400)
     if not isinstance(body, dict):
@@ -7907,7 +7910,7 @@ async def api_create_memory(request):
         return JSONResponse({"error": "missing title"}, status_code=400)
     if not content:
         return JSONResponse({"error": "missing content"}, status_code=400)
-    logger.info("DIAG api_create_memory BODY content repr: %s", repr(content[:300]))
+    logger.info("DIAG CONTENT BEFORE NORMALIZE: %r", content[:300])
     content = _normalize_memory_sections_for_write(content)
     logger.info("DIAG api_create_memory NORM content repr: %s", repr(content[:300]))
 
