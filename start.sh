@@ -1,6 +1,6 @@
 #!/bin/bash
 # Ombre-Brain Railway — Dual-process startup
-# Runs server.py (:8000) and gateway.py (:8010) in one container.
+# Runs server.py (:8000) and gateway.py (default :8010, or $PORT) in one container.
 # Uses Python stdlib urllib for health checks (no curl in python:3.12-slim).
 set -e
 
@@ -36,12 +36,13 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-echo "[start] gateway :8010 ..."
+GATEWAY_PORT="${PORT:-8010}"
+echo "[start] gateway :${GATEWAY_PORT} ..."
 python3 gateway.py &
 GATEWAY_PID=$!
 
 for i in $(seq 1 30); do
-    if health_check 8010; then
+    if health_check "$GATEWAY_PORT"; then
         echo "[start] gateway health OK (attempt $i)"
         break
     fi
@@ -50,6 +51,6 @@ done
 
 echo "=== Ready ==="
 echo "Brain   : http://0.0.0.0:8000"
-echo "Gateway : http://0.0.0.0:8010"
+echo "Gateway : http://0.0.0.0:${GATEWAY_PORT}"
 
 wait -n

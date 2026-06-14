@@ -9908,7 +9908,7 @@ def main() -> None:
     gateway_cfg = config.get("gateway", {})
     app = create_gateway_app(config=config)
     host = gateway_cfg.get("host", "0.0.0.0")
-    port = int(gateway_cfg.get("port", 8010))
+    port = int(os.getenv("PORT", gateway_cfg.get("port", 8010)))
     logger.info("Ombre Brain gateway starting | host=%s port=%s", host, port)
     uvicorn.run(app, host=host, port=port)
 
