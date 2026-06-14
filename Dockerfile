@@ -18,8 +18,6 @@ COPY start.sh .
 RUN chmod +x scripts/*.sh
 RUN chmod +x start.sh
 
-VOLUME ["/data"]
-
 ENV OMBRE_TRANSPORT=streamable-http
 ENV OMBRE_BUCKETS_DIR=/data
 ENV OMBRE_STATE_DIR=/data/state
