@@ -1424,8 +1424,10 @@ class BucketManager:
         try:
             raw = Path(file_path).read_text(encoding="utf-8")
             logger.info("DIAG _load_bucket RAW read_text repr: %s", repr(raw[:300]))
+            post_loads = frontmatter.loads(raw)
+            logger.info("DIAG _load_bucket LOADS content repr: %s", repr(str(post_loads.content)[:300]))
             post = frontmatter.load(file_path)
-            logger.info("DIAG _load_bucket FRONTMATTER content repr: %s", repr(str(post.content)[:300]))
+            logger.info("DIAG _load_bucket LOAD content repr: %s", repr(str(post.content)[:300]))
             return {
                 "id": post.get("id", Path(file_path).stem),
                 "metadata": dict(post.metadata),
