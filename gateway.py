@@ -1805,7 +1805,7 @@ class GatewayService:
                 status_code=401,
             )
 
-        if not secrets.compare_digest(token, self.gateway_token):
+        if not secrets.compare_digest(token.encode("utf-8"), self.gateway_token.encode("utf-8")):
             return JSONResponse(
                 {"error": {"message": "Invalid gateway token", "type": "authentication_error"}},
                 status_code=401,
@@ -1831,7 +1831,7 @@ class GatewayService:
                 error_type="authentication_error",
             )
 
-        if not secrets.compare_digest(token, self.gateway_token):
+        if not secrets.compare_digest(token.encode("utf-8"), self.gateway_token.encode("utf-8")):
             return self._anthropic_error(
                 "Invalid gateway token",
                 status_code=401,
