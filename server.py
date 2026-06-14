@@ -7897,7 +7897,7 @@ async def api_create_memory(request):
     try:
         raw_body = await request.body()
         logger.info("DIAG RAW HTTP BODY BYTES: %r", raw_body[:500])
-        body = await request.json()
+        body = _json_lib.loads(raw_body)
         logger.info("DIAG BODY JSON keys: %s", sorted(body.keys()) if isinstance(body, dict) else type(body).__name__)
     except Exception:
         return JSONResponse({"error": "invalid json body"}, status_code=400)
