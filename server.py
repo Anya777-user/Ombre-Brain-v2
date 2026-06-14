@@ -7907,7 +7907,9 @@ async def api_create_memory(request):
         return JSONResponse({"error": "missing title"}, status_code=400)
     if not content:
         return JSONResponse({"error": "missing content"}, status_code=400)
+    logger.info("DIAG api_create_memory BODY content repr: %s", repr(content[:300]))
     content = _normalize_memory_sections_for_write(content)
+    logger.info("DIAG api_create_memory NORM content repr: %s", repr(content[:300]))
 
     requested_id = body.get("id")
     bucket_id = str(requested_id).strip() if requested_id else None

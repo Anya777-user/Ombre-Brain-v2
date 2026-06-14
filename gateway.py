@@ -1567,6 +1567,8 @@ class GatewayService:
                 self.recalled_budget,
                 current_user_query,
             )
+            if recalled_memory.strip():
+                logger.info("DIAG recalled_memory repr: %s", repr(recalled_memory[:400]))
             if needs_handoff_first or just_now_context_requested:
                 date_persona_trace_debug["skip_reason"] = (
                     "just_now_context"

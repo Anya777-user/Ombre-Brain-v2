@@ -269,6 +269,7 @@ class BucketManager:
         # --- Assemble Markdown file (frontmatter + body) ---
         # --- 组装 Markdown 文件 ---
         post = frontmatter.Post(linked_content, **metadata)
+        logger.info("DIAG create frontmatter.Post content repr: %s", repr(str(post.content)[:300]))
 
         # --- Choose directory by type + primary domain ---
         # --- 按类型 + 主题域选择存储目录 ---
@@ -1422,7 +1423,9 @@ class BucketManager:
         """
         try:
             raw = Path(file_path).read_text(encoding="utf-8")
+            logger.info("DIAG _load_bucket RAW read_text repr: %s", repr(raw[:300]))
             post = frontmatter.load(file_path)
+            logger.info("DIAG _load_bucket FRONTMATTER content repr: %s", repr(str(post.content)[:300]))
             return {
                 "id": post.get("id", Path(file_path).stem),
                 "metadata": dict(post.metadata),
