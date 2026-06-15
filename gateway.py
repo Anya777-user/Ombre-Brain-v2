@@ -1423,6 +1423,63 @@ class GatewayService:
             media_type=upstream_response.headers.get("content-type", "application/json"),
         )
 
+    async def handle_api_proxy(self, request: Request) -> Response:
+        """Proxy /api/* to internal Ombre Brain server without Gateway auth.
+        Dashboard uses its own cookie-based authentication system.
+        Placed AFTER /api/config, /api/memories, /api/debug/* routes
+        which retain Gateway API-key auth for external clients.
+        """
+        from starlette.responses import JSONResponse as _JSONResponse
+
+        upstream_url = f"http://127.0.0.1:8000{request.url.path}"
+        if request.url.query:
+            upstream_url += f"?{request.url.query}"
+
+        forward_headers: dict[str, str] = {}
+        for header_name in ("Cookie", "Content-Type"):
+            value = request.headers.get(header_name)
+            if value:
+                forward_headers[header_name] = value
+
+        try:
+            if request.method == "GET":
+                upstream_response = await self.http_client.get(
+                    upstream_url,
+                    headers=forward_headers,
+                    timeout=30.0,
+                )
+            else:
+                body = None
+                content_type = request.headers.get("content-type", "")
+                if "application/json" in content_type:
+                    try:
+                        body = await request.json()
+                    except Exception:
+                        body = None
+                if body is None:
+                    try:
+                        body = await request.body()
+                    except Exception:
+                        body = b""
+                upstream_response = await self.http_client.post(
+                    upstream_url,
+                    content=body if isinstance(body, bytes) else None,
+                    json=body if not isinstance(body, bytes) and body is not None else None,
+                    headers=forward_headers,
+                    timeout=30.0,
+                )
+        except Exception as exc:
+            return _JSONResponse(
+                {"error": f"internal server unavailable: {exc}"},
+                status_code=502,
+            )
+
+        return Response(
+            content=upstream_response.text,
+            status_code=upstream_response.status_code,
+            media_type=upstream_response.headers.get("content-type", "application/json"),
+        )
+
     async def handle_upstream_usage_debug(self, request: Request) -> JSONResponse:
         auth_result = self._authorize(request.headers.get("Authorization", ""))
         if auth_result is not None:
@@ -10003,6 +10060,9 @@ def create_gateway_app(
     async def auth_proxy(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_auth_proxy(request)
 
+    async def api_proxy(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_api_proxy(request)
+
     app = Starlette(
         debug=False,
         routes=[
@@ -10016,6 +10076,7 @@ def create_gateway_app(
             Route("/api/config", config_route, methods=["GET", "POST"]),
             Route("/api/debug/injections", injection_debug, methods=["GET"]),
             Route("/api/debug/upstream-usage", upstream_usage_debug, methods=["GET"]),
+            Route("/api/{path:path}", api_proxy, methods=["GET", "POST", "PUT", "DELETE", "PATCH"]),
             Route("/v1/models", models, methods=["GET"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
             Route("/v1/messages", anthropic_messages, methods=["POST"]),
