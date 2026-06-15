@@ -19,7 +19,7 @@ import uvicorn
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response, StreamingResponse
+from starlette.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from bucket_manager import BucketManager
@@ -10061,9 +10061,14 @@ def create_gateway_app(
     async def api_proxy(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_api_proxy(request)
 
+    async def root_redirect(request: Request) -> Response:
+        """Redirect root path to /dashboard."""
+        return RedirectResponse(url="/dashboard")
+
     app = Starlette(
         debug=False,
         routes=[
+            Route("/", root_redirect, methods=["GET"]),
             Route("/health", health, methods=["GET"]),
             Route("/dashboard", dashboard, methods=["GET"]),
             Route("/auth/status", auth_proxy, methods=["GET"]),
