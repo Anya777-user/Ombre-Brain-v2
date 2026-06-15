@@ -994,10 +994,6 @@ class GatewayService:
         return updated
 
     async def handle_config(self, request: Request) -> JSONResponse:
-        auth_result = self._authorize(request.headers.get("Authorization", ""))
-        if auth_result is not None:
-            return auth_result
-
         if request.method == "GET":
             return JSONResponse({
                 "gateway": self._gateway_memory_config_payload(),
@@ -1404,7 +1400,8 @@ class GatewayService:
                         body = await request.body()
                     except Exception:
                         body = b""
-                upstream_response = await self.http_client.post(
+                upstream_response = await self.http_client.request(
+                    request.method,
                     upstream_url,
                     content=body if isinstance(body, bytes) else None,
                     json=body if not isinstance(body, bytes) and body is not None else None,
@@ -1461,7 +1458,8 @@ class GatewayService:
                         body = await request.body()
                     except Exception:
                         body = b""
-                upstream_response = await self.http_client.post(
+                upstream_response = await self.http_client.request(
+                    request.method,
                     upstream_url,
                     content=body if isinstance(body, bytes) else None,
                     json=body if not isinstance(body, bytes) and body is not None else None,
