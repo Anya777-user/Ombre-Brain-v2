@@ -1480,11 +1480,23 @@ class GatewayService:
 
     async def handle_mcp_proxy(self, request: Request) -> Response:
         """Proxy MCP Streamable HTTP transport to internal server (:8000)."""
+
+        try:
+            body_bytes = await request.body()
+        except Exception:
+            body_bytes = b""
+
+        body_preview = body_bytes.decode("utf-8", errors="ignore")[:500]
+
         logger.info(
-            "MCP Accept=%s User-Agent=%s",
+            "MCP method=%s Accept=%s Content-Type=%s User-Agent=%s body[0:500]=%s",
+            request.method,
             request.headers.get("Accept"),
+            request.headers.get("Content-Type"),
             request.headers.get("User-Agent"),
+            body_preview,
         )
+
         upstream_url = f"http://127.0.0.1:8000{request.url.path}"
         if request.url.query:
             upstream_url += f"?{request.url.query}"
