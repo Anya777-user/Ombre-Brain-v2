@@ -1485,11 +1485,26 @@ class GatewayService:
             upstream_url += f"?{request.url.query}"
 
         forward_headers: dict[str, str] = {}
-        for name in ("Content-Type", "Accept", "Authorization",
+        for name in ("Content-Type", "Authorization",
                      "Mcp-Session-Id", "mcp-session-id"):
             value = request.headers.get(name)
             if value:
                 forward_headers[name] = value
+
+        # FastMCP streamable-http requires both application/json and
+        # text/event-stream in Accept. Some MCP clients (Claude Connector)
+        # send only application/json, which causes 406. Always inject both.
+        client_accept = request.headers.get("Accept", "")
+        mcp_accept_parts = []
+        if "application/json" not in client_accept:
+            mcp_accept_parts.append("application/json")
+        if "text/event-stream" not in client_accept:
+            mcp_accept_parts.append("text/event-stream")
+        if mcp_accept_parts:
+            if client_accept:
+                forward_headers["Accept"] = client_accept + ", " + ", ".join(mcp_accept_parts)
+            else:
+                forward_headers["Accept"] = ", ".join(mcp_accept_parts)
 
         try:
             if request.method == "GET":
