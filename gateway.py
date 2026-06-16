@@ -1493,6 +1493,7 @@ class GatewayService:
 
         try:
             if request.method == "GET":
+                forward_headers["Accept"] = "text/event-stream"
                 upstream_response = await self.http_client.send(
                     self.http_client.build_request(
                         "GET", upstream_url, headers=forward_headers),
