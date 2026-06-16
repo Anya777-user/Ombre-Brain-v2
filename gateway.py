@@ -1506,11 +1506,19 @@ class GatewayService:
             upstream_url += f"?{request.url.query}"
 
         forward_headers: dict[str, str] = {}
-        for name in ("Content-Type", "Authorization",
-                     "Mcp-Session-Id", "mcp-session-id"):
+        for name in ("Content-Type", "Authorization"):
             value = request.headers.get(name)
             if value:
                 forward_headers[name] = value
+
+        # Forward only ONE session header to avoid ASGI/proxy
+        # merging both variants into a comma-separated duplicate.
+        session_id = (
+            request.headers.get("Mcp-Session-Id")
+            or request.headers.get("mcp-session-id")
+        )
+        if session_id:
+            forward_headers["Mcp-Session-Id"] = session_id
 
         # FastMCP streamable-http requires both application/json and
         # text/event-stream in Accept. Some MCP clients (Claude Connector)
@@ -3332,11 +3340,15 @@ class GatewayService:
 
     def _proxy_response(self, upstream_response: httpx.Response) -> Response:
         content_type = upstream_response.headers.get("content-type", "application/json")
+        # Only emit one session header variant to avoid
+        # ASGI/proxy merging both into a comma-separated duplicate.
+        session_id = (
+            upstream_response.headers.get("Mcp-Session-Id")
+            or upstream_response.headers.get("mcp-session-id")
+        )
         resp_headers = {}
-        for h in ("Mcp-Session-Id", "mcp-session-id"):
-            v = upstream_response.headers.get(h)
-            if v:
-                resp_headers[h] = v
+        if session_id:
+            resp_headers["Mcp-Session-Id"] = session_id
         try:
             body = upstream_response.json()
             return JSONResponse(
