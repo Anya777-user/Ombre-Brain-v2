@@ -3296,14 +3296,24 @@ class GatewayService:
 
     def _proxy_response(self, upstream_response: httpx.Response) -> Response:
         content_type = upstream_response.headers.get("content-type", "application/json")
+        resp_headers = {}
+        for h in ("Mcp-Session-Id", "mcp-session-id"):
+            v = upstream_response.headers.get(h)
+            if v:
+                resp_headers[h] = v
         try:
             body = upstream_response.json()
-            return JSONResponse(body, status_code=upstream_response.status_code)
+            return JSONResponse(
+                body,
+                status_code=upstream_response.status_code,
+                headers=resp_headers,
+            )
         except ValueError:
             return Response(
                 content=upstream_response.text,
                 status_code=upstream_response.status_code,
                 media_type=content_type,
+                headers=resp_headers,
             )
 
     def _anthropic_request_to_openai(self, payload: dict) -> dict:
