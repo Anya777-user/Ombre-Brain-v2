@@ -1478,6 +1478,67 @@ class GatewayService:
             media_type=upstream_response.headers.get("content-type", "application/json"),
         )
 
+    async def handle_mcp_proxy(self, request: Request) -> Response:
+        """Proxy MCP Streamable HTTP transport to internal server (:8000)."""
+        upstream_url = f"http://127.0.0.1:8000{request.url.path}"
+        if request.url.query:
+            upstream_url += f"?{request.url.query}"
+
+        forward_headers: dict[str, str] = {}
+        for name in ("Content-Type", "Accept", "Authorization",
+                     "Mcp-Session-Id", "mcp-session-id"):
+            value = request.headers.get(name)
+            if value:
+                forward_headers[name] = value
+
+        try:
+            if request.method == "GET":
+                upstream_response = await self.http_client.send(
+                    self.http_client.build_request(
+                        "GET", upstream_url, headers=forward_headers),
+                    stream=True,
+                )
+                if not 200 <= upstream_response.status_code < 300:
+                    body = await upstream_response.aread()
+                    await upstream_response.aclose()
+                    return Response(
+                        content=body,
+                        status_code=upstream_response.status_code,
+                        media_type=upstream_response.headers.get(
+                            "content-type", "text/plain"),
+                    )
+
+                async def stream_mcp():
+                    try:
+                        async for chunk in upstream_response.aiter_bytes():
+                            if chunk:
+                                yield chunk
+                    finally:
+                        await upstream_response.aclose()
+
+                return StreamingResponse(
+                    stream_mcp(),
+                    status_code=upstream_response.status_code,
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "X-Accel-Buffering": "no",
+                        "Connection": "keep-alive",
+                    },
+                )
+            else:
+                body = await request.body()
+                upstream_response = await self.http_client.request(
+                    request.method, upstream_url,
+                    content=body, headers=forward_headers, timeout=60.0,
+                )
+                return self._proxy_response(upstream_response)
+        except Exception as exc:
+            from starlette.responses import JSONResponse as _JSONResponse
+            return _JSONResponse(
+                {"error": f"mcp server unavailable: {exc}"}, status_code=502,
+            )
+
     async def handle_upstream_usage_debug(self, request: Request) -> JSONResponse:
         auth_result = self._authorize(request.headers.get("Authorization", ""))
         if auth_result is not None:
@@ -10061,6 +10122,9 @@ def create_gateway_app(
     async def api_proxy(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_api_proxy(request)
 
+    async def mcp_proxy(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_mcp_proxy(request)
+
     async def root_redirect(request: Request) -> Response:
         """Redirect root path to /dashboard."""
         return RedirectResponse(url="/dashboard")
@@ -10080,6 +10144,8 @@ def create_gateway_app(
             Route("/api/debug/injections", injection_debug, methods=["GET"]),
             Route("/api/debug/upstream-usage", upstream_usage_debug, methods=["GET"]),
             Route("/api/{path:path}", api_proxy, methods=["GET", "POST", "PUT", "DELETE", "PATCH"]),
+            Route("/mcp", mcp_proxy, methods=["GET", "POST", "DELETE"]),
+            Route("/mcp/{path:path}", mcp_proxy, methods=["GET", "POST", "DELETE"]),
             Route("/v1/models", models, methods=["GET"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
             Route("/v1/messages", anthropic_messages, methods=["POST"]),
