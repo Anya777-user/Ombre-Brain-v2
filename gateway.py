@@ -1510,18 +1510,15 @@ class GatewayService:
 
         # FastMCP streamable-http requires both application/json and
         # text/event-stream in Accept. Some MCP clients (Claude Connector)
-        # send only application/json, which causes 406. Always inject both.
+        # send only application/json, which causes 406. Always ensure both
+        # are present AND always forward Accept to the internal server.
         client_accept = request.headers.get("Accept", "")
-        mcp_accept_parts = []
+        mcp_accept = client_accept
         if "application/json" not in client_accept:
-            mcp_accept_parts.append("application/json")
+            mcp_accept = mcp_accept + (", " if mcp_accept else "") + "application/json"
         if "text/event-stream" not in client_accept:
-            mcp_accept_parts.append("text/event-stream")
-        if mcp_accept_parts:
-            if client_accept:
-                forward_headers["Accept"] = client_accept + ", " + ", ".join(mcp_accept_parts)
-            else:
-                forward_headers["Accept"] = ", ".join(mcp_accept_parts)
+            mcp_accept = mcp_accept + (", " if mcp_accept else "") + "text/event-stream"
+        forward_headers["Accept"] = mcp_accept
 
         try:
             if request.method == "GET":
