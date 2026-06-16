@@ -1488,12 +1488,16 @@ class GatewayService:
 
         body_preview = body_bytes.decode("utf-8", errors="ignore")[:500]
 
+        # Dump incoming MCP session-relevant headers
+        incoming_headers = {
+            h: request.headers.get(h)
+            for h in ("Mcp-Session-Id", "mcp-session-id", "Accept",
+                       "Content-Type", "User-Agent")
+        }
         logger.info(
-            "MCP method=%s Accept=%s Content-Type=%s User-Agent=%s body[0:500]=%s",
+            "MCP IN  method=%s headers=%s body[0:500]=%s",
             request.method,
-            request.headers.get("Accept"),
-            request.headers.get("Content-Type"),
-            request.headers.get("User-Agent"),
+            incoming_headers,
             body_preview,
         )
 
@@ -1519,6 +1523,9 @@ class GatewayService:
         if "text/event-stream" not in client_accept:
             mcp_accept = mcp_accept + (", " if mcp_accept else "") + "text/event-stream"
         forward_headers["Accept"] = mcp_accept
+
+        # Log exactly what headers are forwarded to internal FastMCP
+        logger.info("MCP FORWARD headers=%s", dict(forward_headers))
 
         try:
             if request.method == "GET":
