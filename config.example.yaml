@@ -259,16 +259,16 @@ gateway:
   # ── Upstream providers / 上游模型路由 ──
   # gateway reads upstreams first; falls back to upstream_base_url if empty.
   upstreams:
-    - name: "deepseek"
-      base_url: "https://api.deepseek.com/v1"
-      api_key_env: "OMBRE_GATEWAY_DEEPSEEK_API_KEY"
-      default_model: "deepseek-chat"
+    - name: "jiushi"
+      base_url: "https://api.jiushi.xin/v1"
+      api_key_env: "OMBRE_GATEWAY_JIUSHI_API_KEY"
+      default_model: "claude-sonnet-4-20250514"
       prompt_cache: ""
       models:
-        - "deepseek-chat"
-        - "deepseek-reasoner"
-        - id: "deepseek/deepseek-v4"
-          upstream_model: "deepseek-v4"
+        - "claude-sonnet-4-20250514"
+        - "claude-sonnet-4-6-20250514"
+        - "claude-haiku-4-5-20251001"
+        - "claude-opus-4-8"
   # ── Fallback single-upstream mode / 回退单上游模式 ──
   upstream_base_url: ""
   upstream_default_model: ""
