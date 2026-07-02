@@ -1603,6 +1603,26 @@ class GatewayService:
             }
         )
 
+    async def handle_db_last(self, _request: Request) -> JSONResponse:
+        """Temporary: return latest conversation_turns + injection_debug rows."""
+        import sqlite3 as _sqlite3
+        try:
+            conn = _sqlite3.connect(self.state_store.db_path)
+            conn.row_factory = _sqlite3.Row
+            turns_rows = conn.execute(
+                "SELECT id, session_id, substr(user_text,1,80) AS user_text_snippet FROM conversation_turns ORDER BY id DESC LIMIT 5"
+            ).fetchall()
+            injection_rows = conn.execute(
+                "SELECT id, session_id, json_extract(payload_json,'$.query_preview') AS query_preview FROM injection_debug ORDER BY id DESC LIMIT 5"
+            ).fetchall()
+            conn.close()
+            return JSONResponse({
+                "turns": [dict(r) for r in turns_rows],
+                "injection": [dict(r) for r in injection_rows],
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
     async def prepare_payload(
         self,
         payload: dict,
@@ -10169,6 +10189,9 @@ def create_gateway_app(
     async def upstream_usage_debug(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_upstream_usage_debug(request)
 
+    async def db_last(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_db_last(request)
+
     async def create_memory(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_create_memory(request)
 
@@ -10202,6 +10225,7 @@ def create_gateway_app(
             Route("/api/config", config_route, methods=["GET", "POST"]),
             Route("/api/debug/injections", injection_debug, methods=["GET"]),
             Route("/api/debug/upstream-usage", upstream_usage_debug, methods=["GET"]),
+            Route("/debug/db/last", db_last, methods=["GET"]),
             Route("/api/{path:path}", api_proxy, methods=["GET", "POST", "PUT", "DELETE", "PATCH"]),
             Route("/mcp", mcp_proxy, methods=["GET", "POST", "DELETE"]),
             Route("/mcp/{path:path}", mcp_proxy, methods=["GET", "POST", "DELETE"]),
