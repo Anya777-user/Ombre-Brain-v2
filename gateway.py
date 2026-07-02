@@ -2299,6 +2299,17 @@ class GatewayService:
         route: str = "",
         upstream_usage: dict[str, Any] | None = None,
     ) -> None:
+        # --- TEMPORARY: Entry trace ---
+        logger.info(
+            "TURN ENTRY | session=%s recalled=%s has_debug=%s user_msg=%s client=%s route=%s",
+            session_id,
+            recalled_ids is not None,
+            injection_debug is not None,
+            (user_message or "")[:120],
+            client,
+            route,
+        )
+        # --- END TEMPORARY ---
         if recalled_ids is None:
             logger.info(
                 "Gateway round bookkeeping skipped | session=%s reason=not_current_user_turn",
@@ -2371,6 +2382,17 @@ class GatewayService:
         client: str,
         route: str,
     ) -> None:
+        # --- TEMPORARY: Entry trace ---
+        logger.info(
+            "TURN RECORDED | session=%s round=%s model=%s client=%s route=%s user_msg=%s",
+            session_id,
+            round_id,
+            model,
+            client,
+            route,
+            (user_message or "")[:120],
+        )
+        # --- END TEMPORARY ---
         if not user_message.strip():
             return
         assistant_text = ""
@@ -10218,6 +10240,42 @@ def create_gateway_app(
         allow_headers=["*"],
         expose_headers=["*"],
     )
+
+    # --- TEMPORARY: Request tracing middleware ---
+    # Logs every incoming request to help confirm RikkaHub traffic hits this gateway.
+    # Remove after verification.
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class RequestTracingMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            import time as _time
+            t0 = _time.time()
+            response = await call_next(request)
+            elapsed_ms = (_time.time() - t0) * 1000
+
+            # Build minimal, high-signal log line
+            session_id = request.headers.get("X-Ombre-Session-Id", "-")
+            profile_hint = request.headers.get("X-Ombre-Profile-Id", "-")
+            user_agent = (request.headers.get("user-agent", "") or "")[:80]
+            qp = dict(request.query_params)
+            query_hint = qp.get("query", qp.get("q", "")) or "-"
+
+            logger.info(
+                "TRACE | %s %s | session=%s profile=%s | query=%s | ua=%s | %d %.1fms",
+                request.method,
+                request.url.path,
+                session_id,
+                profile_hint,
+                query_hint[:120],
+                user_agent,
+                response.status_code,
+                elapsed_ms,
+            )
+            return response
+
+    app.add_middleware(RequestTracingMiddleware)
+    # --- END TEMPORARY ---
+
     return app
 
 
