@@ -1621,7 +1621,26 @@ class GatewayService:
         self._get_upstream_for_model(model)
 
         all_buckets = await self.bucket_mgr.list_all(include_archive=False)
+        # --- TEMPORARY: message debug ---
+        logger.info(
+            "MESSAGE ROLES=%s",
+            [m.get("role") for m in messages if isinstance(m, dict)],
+        )
+        for i, m in enumerate(messages):
+            if not isinstance(m, dict):
+                logger.info("MSG[%d] raw=%r", i, m)
+                continue
+            logger.info(
+                "MSG[%d] role=%s content=%s",
+                i,
+                m.get("role"),
+                str(m.get("content", ""))[:120],
+            )
+        # --- END TEMPORARY ---
         current_user_query = self._extract_current_turn_user_query(messages)
+        # --- TEMPORARY ---
+        logger.info("CURRENT USER QUERY=%r", current_user_query)
+        # --- END TEMPORARY ---
         is_new_user_turn = bool(current_user_query)
         has_handoff_context = self._messages_contain_handoff_context(messages)
         is_handoff_trigger_query = self._query_is_handoff_trigger(current_user_query)
