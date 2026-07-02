@@ -1621,26 +1621,7 @@ class GatewayService:
         self._get_upstream_for_model(model)
 
         all_buckets = await self.bucket_mgr.list_all(include_archive=False)
-        # --- TEMPORARY: message debug ---
-        logger.info(
-            "MESSAGE ROLES=%s",
-            [m.get("role") for m in messages if isinstance(m, dict)],
-        )
-        for i, m in enumerate(messages):
-            if not isinstance(m, dict):
-                logger.info("MSG[%d] raw=%r", i, m)
-                continue
-            logger.info(
-                "MSG[%d] role=%s content=%s",
-                i,
-                m.get("role"),
-                str(m.get("content", ""))[:120],
-            )
-        # --- END TEMPORARY ---
         current_user_query = self._extract_current_turn_user_query(messages)
-        # --- TEMPORARY ---
-        logger.info("CURRENT USER QUERY=%r", current_user_query)
-        # --- END TEMPORARY ---
         is_new_user_turn = bool(current_user_query)
         has_handoff_context = self._messages_contain_handoff_context(messages)
         is_handoff_trigger_query = self._query_is_handoff_trigger(current_user_query)
@@ -2046,12 +2027,6 @@ class GatewayService:
         return route
 
     def _authorize(self, auth_header: str) -> JSONResponse | None:
-        # --- TEMPORARY: Auth debug ---
-        logger.info(
-            "AUTH HEADER PREFIX=%s",
-            auth_header[:40] if auth_header else "<missing>",
-        )
-        # --- END TEMPORARY ---
         if not self.gateway_token:
             return JSONResponse(
                 {"error": {"message": "Gateway token is not configured", "type": "server_error"}},
@@ -2059,13 +2034,6 @@ class GatewayService:
             )
 
         scheme, _, token = auth_header.partition(" ")
-        # --- TEMPORARY: Auth debug ---
-        logger.info(
-            "EXPECTED TOKEN LEN=%d RECEIVED LEN=%d",
-            len(self.gateway_token),
-            len(token),
-        )
-        # --- END TEMPORARY ---
         if scheme.lower() != "bearer" or not token:
             return JSONResponse(
                 {"error": {"message": "Authorization: Bearer token is required", "type": "authentication_error"}},
@@ -2331,17 +2299,6 @@ class GatewayService:
         route: str = "",
         upstream_usage: dict[str, Any] | None = None,
     ) -> None:
-        # --- TEMPORARY: Entry trace ---
-        logger.info(
-            "TURN ENTRY | session=%s recalled=%s has_debug=%s user_msg=%s client=%s route=%s",
-            session_id,
-            recalled_ids is not None,
-            injection_debug is not None,
-            (user_message or "")[:120],
-            client,
-            route,
-        )
-        # --- END TEMPORARY ---
         if recalled_ids is None:
             logger.info(
                 "Gateway round bookkeeping skipped | session=%s reason=not_current_user_turn",
@@ -2414,17 +2371,6 @@ class GatewayService:
         client: str,
         route: str,
     ) -> None:
-        # --- TEMPORARY: Entry trace ---
-        logger.info(
-            "TURN RECORDED | session=%s round=%s model=%s client=%s route=%s user_msg=%s",
-            session_id,
-            round_id,
-            model,
-            client,
-            route,
-            (user_message or "")[:120],
-        )
-        # --- END TEMPORARY ---
         if not user_message.strip():
             return
         assistant_text = ""
@@ -4020,7 +3966,7 @@ class GatewayService:
             if not isinstance(message, dict):
                 continue
             role = message.get("role")
-            if role == "system":
+            if role in ("system", "assistant", "tool"):
                 continue
             if role != "user":
                 return ""
@@ -10272,41 +10218,6 @@ def create_gateway_app(
         allow_headers=["*"],
         expose_headers=["*"],
     )
-
-    # --- TEMPORARY: Request tracing middleware ---
-    # Logs every incoming request to help confirm RikkaHub traffic hits this gateway.
-    # Remove after verification.
-    from starlette.middleware.base import BaseHTTPMiddleware
-
-    class RequestTracingMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request, call_next):
-            import time as _time
-            t0 = _time.time()
-            response = await call_next(request)
-            elapsed_ms = (_time.time() - t0) * 1000
-
-            # Build minimal, high-signal log line
-            session_id = request.headers.get("X-Ombre-Session-Id", "-")
-            profile_hint = request.headers.get("X-Ombre-Profile-Id", "-")
-            user_agent = (request.headers.get("user-agent", "") or "")[:80]
-            qp = dict(request.query_params)
-            query_hint = qp.get("query", qp.get("q", "")) or "-"
-
-            logger.info(
-                "TRACE | %s %s | session=%s profile=%s | query=%s | ua=%s | %d %.1fms",
-                request.method,
-                request.url.path,
-                session_id,
-                profile_hint,
-                query_hint[:120],
-                user_agent,
-                response.status_code,
-                elapsed_ms,
-            )
-            return response
-
-    app.add_middleware(RequestTracingMiddleware)
-    # --- END TEMPORARY ---
 
     return app
 
