@@ -2027,6 +2027,12 @@ class GatewayService:
         return route
 
     def _authorize(self, auth_header: str) -> JSONResponse | None:
+        # --- TEMPORARY: Auth debug ---
+        logger.info(
+            "AUTH HEADER PREFIX=%s",
+            auth_header[:40] if auth_header else "<missing>",
+        )
+        # --- END TEMPORARY ---
         if not self.gateway_token:
             return JSONResponse(
                 {"error": {"message": "Gateway token is not configured", "type": "server_error"}},
@@ -2034,6 +2040,13 @@ class GatewayService:
             )
 
         scheme, _, token = auth_header.partition(" ")
+        # --- TEMPORARY: Auth debug ---
+        logger.info(
+            "EXPECTED TOKEN LEN=%d RECEIVED LEN=%d",
+            len(self.gateway_token),
+            len(token),
+        )
+        # --- END TEMPORARY ---
         if scheme.lower() != "bearer" or not token:
             return JSONResponse(
                 {"error": {"message": "Authorization: Bearer token is required", "type": "authentication_error"}},
