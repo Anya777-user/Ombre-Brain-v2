@@ -2108,6 +2108,19 @@ class GatewayService:
         for attempt, key_entry in enumerate(key_entries, start=1):
             started_at = time.perf_counter()
             try:
+                _masked = lambda v: (v[:12] + "****" + v[-4:]) if len(v) > 16 else "****"
+                _auth_val = key_entry["value"]
+                _masked_auth = f"Bearer {_masked(_auth_val)}"
+                logger.info(
+                    "DEBUG upstream request | method=POST url=%s model=%s model_repr=%r "
+                    "auth=%s content_type=%s payload_keys=%s",
+                    url,
+                    upstream_payload.get("model", ""),
+                    upstream_payload.get("model", ""),
+                    _masked_auth,
+                    "application/json",
+                    list(upstream_payload.keys()),
+                )
                 response = await self.http_client.post(
                     url,
                     headers={
@@ -2176,6 +2189,19 @@ class GatewayService:
         last_response: httpx.Response | None = None
 
         for attempt, key_entry in enumerate(key_entries, start=1):
+            _masked = lambda v: (v[:12] + "****" + v[-4:]) if len(v) > 16 else "****"
+            _auth_val2 = key_entry["value"]
+            _masked_auth2 = f"Bearer {_masked(_auth_val2)}"
+            logger.info(
+                "DEBUG upstream stream request | method=POST url=%s model=%s model_repr=%r "
+                "auth=%s content_type=%s payload_keys=%s",
+                url,
+                upstream_payload.get("model", ""),
+                upstream_payload.get("model", ""),
+                _masked_auth2,
+                "application/json",
+                list(upstream_payload.keys()),
+            )
             request = self.http_client.build_request(
                 "POST",
                 url,
