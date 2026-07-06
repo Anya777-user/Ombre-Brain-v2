@@ -259,15 +259,21 @@ gateway:
   # ── Upstream providers / 上游模型路由 ──
   # gateway reads upstreams first; falls back to upstream_base_url if empty.
   upstreams:
-    - name: "jiushi"
-      base_url: "https://api.jiushi.xin/v1"
-      api_key_env: "OMBRE_GATEWAY_JIUSHI_API_KEY"
-      default_model: "[k]claude-sonnet-4-6-thinking"
+    - name: "dianhuomao"
+      base_url: "https://api.gemai.cc/v1"
+      api_key_env: "OMBRE_GATEWAY_GEMAI_API_KEY"
+      default_model: "[限时福利]claude-opus-4-8-thinking"
       prompt_cache: ""
       models:
-        - "[k]claude-sonnet-4-6-thinking"
-        - "[k]claude-sonnet-4-20250514"
-        - "[k]claude-opus-4-8"
+        - "[限时福利]claude-opus-4-8-thinking"
+        - "[限时福利]claude-opus-4-8"
+        - "[限时福利]claude-opus-4-7-thinking"
+        - "[限时福利]claude-opus-4-7"
+        - "[限时福利]claude-opus-4-6-thinking"
+        - "[限时福利]claude-opus-4-6"
+        - "[限时福利]claude-opus-4-5"
+        - "[限时福利]claude-sonnet-5"
+        - "[限时福利]claude-sonnet-4-6"
   # ── Fallback single-upstream mode / 回退单上游模式 ──
   upstream_base_url: ""
   upstream_default_model: ""
