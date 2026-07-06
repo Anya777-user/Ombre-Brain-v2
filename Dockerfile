@@ -13,7 +13,7 @@ COPY *.py .
 COPY resources ./resources
 COPY scripts ./scripts
 COPY dashboard.html .
-COPY config.example.yaml ./config.yaml
+COPY config.yaml ./config.yaml
 COPY start.sh .
 RUN chmod +x scripts/*.sh
 RUN chmod +x start.sh
