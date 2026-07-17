@@ -22,6 +22,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Route
 
+from heartcore import HeartCore
+from desire import DesireCore
+
 from bucket_manager import BucketManager
 from dehydrator import Dehydrator
 from dream_engine import DreamEngine
@@ -384,6 +387,8 @@ class GatewayService:
             self.gateway_tz = ZoneInfo(gateway_timezone)
         except Exception:
             self.gateway_tz = ZoneInfo("Asia/Shanghai")
+        self.heart_engine = HeartCore()
+        self.desire_engine = DesireCore()
         self.favorite_memory_budget = int(self.gateway_cfg.get("favorite_memory_budget", 180))
         self.favorite_memory_max_cards = max(0, int(self.gateway_cfg.get("favorite_memory_max_cards", 1)))
         self.related_memory_budget = int(self.gateway_cfg.get("related_memory_budget", 220))
@@ -1477,6 +1482,69 @@ class GatewayService:
             status_code=upstream_response.status_code,
             media_type=upstream_response.headers.get("content-type", "application/json"),
         )
+
+    async def handle_proactive_poll(self, request: Request) -> JSONResponse:
+        auth_result = self._authorize(request.headers.get("Authorization", ""))
+        if auth_result is not None:
+            return auth_result
+        pending, reason = await self._should_speak_now()
+        self._log_poll_decision(pending=pending, reason=reason)
+        return JSONResponse({"pending": pending})
+
+    async def _should_speak_now(self) -> tuple[bool, str]:
+        now = datetime.now(self.gateway_tz)
+        hour = now.hour
+
+        # 护栏一：静默窗口 23:00-07:00，美国作息默认关
+        QUIET_ENABLED = False
+        if QUIET_ENABLED and (hour >= 23 or hour < 7):
+            return False, f"静默窗口 hour={hour}"
+
+        # 护栏二：防连发，距上次对话至少 25 分钟
+        last_success = self.state_store.get_last_success_at(self.default_session_id)
+        if last_success:
+            now_utc = datetime.now(timezone.utc)
+            last_utc = (
+                last_success.replace(tzinfo=timezone.utc)
+                if last_success.tzinfo is None
+                else last_success
+            )
+            idle_minutes = (now_utc - last_utc).total_seconds() / 60
+            if idle_minutes < 25:
+                return False, f"防连发 idle={idle_minutes:.1f}min"
+
+        # 步骤2：四层状态驱动判断，异常兜底放行
+        try:
+            heart_state = self.heart_engine.get_state(self.default_session_id)
+            desire_out  = self.desire_engine.peek()
+
+            if heart_state.attachment.longing < 0.35:
+                return False, f"longing 不够 ({heart_state.attachment.longing:.2f})"
+
+            top_score = desire_out.scores.get("attachment", 0.0)
+            if top_score < 0.50:
+                return False, f"desire.attachment 不够 ({top_score:.2f})"
+
+            if desire_out.fatigue_gated:
+                return False, "fatigue_gated"
+
+            stress = desire_out.drive.get("stress", 0.0)
+            if stress > 0.75:
+                return False, f"stress 太高别去烦她 ({stress:.2f})"
+
+            return True, "状态驱动"
+        except Exception as e:
+            return True, f"fallback_exception: {e}"
+
+    def _log_poll_decision(self, pending: bool, reason: str) -> None:
+        import json, logging
+        record = {
+            "ts": datetime.now(self.gateway_tz).isoformat(),
+            "kind": "poll_decision",
+            "pending": pending,
+            "reason": reason,
+        }
+        logging.getLogger("proactive").info(json.dumps(record, ensure_ascii=False))
 
     async def handle_mcp_proxy(self, request: Request) -> Response:
         """Proxy MCP Streamable HTTP transport to internal server (:8000)."""
@@ -10204,6 +10272,9 @@ def create_gateway_app(
     async def api_proxy(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_api_proxy(request)
 
+    async def proactive_poll_route(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_proactive_poll(request)
+
     async def mcp_proxy(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_mcp_proxy(request)
 
@@ -10226,6 +10297,7 @@ def create_gateway_app(
             Route("/api/debug/injections", injection_debug, methods=["GET"]),
             Route("/api/debug/upstream-usage", upstream_usage_debug, methods=["GET"]),
             Route("/debug/db/last", db_last, methods=["GET"]),
+            Route("/api/proactive/poll", proactive_poll_route, methods=["GET"]),
             Route("/api/{path:path}", api_proxy, methods=["GET", "POST", "PUT", "DELETE", "PATCH"]),
             Route("/mcp", mcp_proxy, methods=["GET", "POST", "DELETE"]),
             Route("/mcp/{path:path}", mcp_proxy, methods=["GET", "POST", "DELETE"]),
