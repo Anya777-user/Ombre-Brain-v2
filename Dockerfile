@@ -10,6 +10,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY *.py .
+COPY heartcore ./heartcore
+COPY desire ./desire
 COPY resources ./resources
 COPY scripts ./scripts
 COPY dashboard.html .
