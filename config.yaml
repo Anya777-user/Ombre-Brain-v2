@@ -118,21 +118,23 @@ gateway:
   port: 8010
   default_session_id: Kitty
   upstreams:
-  - name: dianhuomao
-    base_url: https://api.gemai.cc/v1
-    api_key_env: OMBRE_GATEWAY_GEMAI_API_KEY
-    default_model: "[限时福利]claude-opus-4-8-thinking"
-    prompt_cache: ''
+  - name: "xn-station"
+    base_url: "https://xn--vduyey89e.com/v1"
+    api_key_env: "OMBRE_GATEWAY_JIUSHI_API_KEY"
     models:
-    - "[限时福利]claude-opus-4-8-thinking"
-    - "[限时福利]claude-opus-4-8"
-    - "[限时福利]claude-opus-4-7-thinking"
-    - "[限时福利]claude-opus-4-7"
-    - "[限时福利]claude-opus-4-6-thinking"
-    - "[限时福利]claude-opus-4-6"
-    - "[限时福利]claude-opus-4-5"
-    - "[限时福利]claude-sonnet-5"
-    - "[限时福利]claude-sonnet-4-6"
+    - "[特特价次kiro]claude-opus-4-8-thinking"
+    - "[特价次kiro]claude-opus-4-8-thinking"
+    - "[特特价次kiro]claude-opus-4-7-thinking"
+    - "[特特价次kiro]claude-opus-4-6-thinking"
+    - "[特价次kiro]claude-opus-4-6-thinking"
+    - "[AG量]claude-opus-4-6-thinking"
+    - "[kiro量低缓]claude-opus-4-6-thinking"
+    - "[kiro量高缓]claude-opus-4-8-thinking"
+    - "[kiro量高缓]claude-opus-4-8"
+    - "[kiro量高缓]claude-opus-4-6-thinking"
+    - "[羊毛cursor]claude-opus-4-8"
+    - "[羊毛cursor]claude-fable-5"
+    - "[特特价次kiro]claude-sonnet-5"
   upstream_base_url: ''
   upstream_default_model: ''
   prompt_cache: ''
