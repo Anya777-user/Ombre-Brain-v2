@@ -64,7 +64,7 @@ class HeartCore:
         now = now_ms()
         hours_elapsed = max(0.0, (now - last_tick) / 3_600_000)
 
-        new_snap = compute_mood([], snap, decay=0.99)
+        new_snap = compute_mood(snap, [])
         self.store.save_mood(name, new_snap, now)
 
         aff, style, hours_since = self.store.load_affinity(name)
