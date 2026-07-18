@@ -116,7 +116,7 @@ moment_annotations:
 gateway:
   host: 0.0.0.0
   port: 8010
-  default_session_id: test-main
+  default_session_id: Kitty
   upstreams:
   - name: dianhuomao
     base_url: https://api.gemai.cc/v1
