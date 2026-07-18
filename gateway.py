@@ -303,7 +303,7 @@ class GatewayService:
         self.upstream_api_key = os.environ.get("OMBRE_GATEWAY_UPSTREAM_API_KEY", "")
         self.upstream_base_url = self.gateway_cfg.get("upstream_base_url", "").rstrip("/")
         self.upstream_default_model = self.gateway_cfg.get("upstream_default_model", "")
-        self.default_session_id = str(self.gateway_cfg.get("default_session_id") or "xiaoyu-main").strip()
+        self.default_session_id = str(self.gateway_cfg.get("default_session_id") or "Anya").strip()
         self.upstream_models = self._normalize_model_list(
             self.gateway_cfg.get("upstream_models", []),
             self.upstream_default_model,

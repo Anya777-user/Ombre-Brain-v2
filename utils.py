@@ -174,7 +174,7 @@ def load_config(config_path: str = None) -> dict:
         "gateway": {
             "host": "0.0.0.0",
             "port": 8010,
-            "default_session_id": "xiaoyu-main",
+            "default_session_id": "Anya",
             "upstream_base_url": "",
             "upstream_default_model": "",
             "upstream_models": [],
