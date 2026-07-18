@@ -22,8 +22,8 @@ RUN chmod +x scripts/*.sh
 RUN chmod +x start.sh
 
 ENV OMBRE_TRANSPORT=streamable-http
-ENV OMBRE_BUCKETS_DIR=/data
-ENV OMBRE_STATE_DIR=/data/state
+ENV OMBRE_BUCKETS_DIR=/opt/render/project/src/buckets
+ENV OMBRE_STATE_DIR=/opt/render/project/src/buckets/state
 
 EXPOSE 8000 8010
 
