@@ -1515,11 +1515,11 @@ class GatewayService:
 
         # 步骤2：四层状态驱动判断，异常兜底放行
         try:
-            heart_state = self.heart_engine.get_state(self.default_session_id)
+            tick_result = self.heart_engine.tick("Kitty")
             desire_out  = self.desire_engine.peek()
 
-            if heart_state.attachment.longing < 0.35:
-                return False, f"longing 不够 ({heart_state.attachment.longing:.2f})"
+            if tick_result.longing < 0.35:
+                return False, f"longing 不够 ({tick_result.longing:.2f})"
 
             top_score = desire_out.scores.get("attachment", 0.0)
             if top_score < 0.50:
