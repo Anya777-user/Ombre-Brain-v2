@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Route
 
-from heartcore import HeartCore
+from heartcore import HeartCore, Store
 from desire import DesireCore
 
 from bucket_manager import BucketManager
@@ -387,7 +387,7 @@ class GatewayService:
             self.gateway_tz = ZoneInfo(gateway_timezone)
         except Exception:
             self.gateway_tz = ZoneInfo("Asia/Shanghai")
-        self.heart_engine = HeartCore()
+        self.heart_engine = HeartCore(Store(path=os.path.join(config["buckets_dir"], "heartcore_state.json")))
         self.desire_engine = DesireCore()
         self.favorite_memory_budget = int(self.gateway_cfg.get("favorite_memory_budget", 180))
         self.favorite_memory_max_cards = max(0, int(self.gateway_cfg.get("favorite_memory_max_cards", 1)))
