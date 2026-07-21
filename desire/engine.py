@@ -131,6 +131,14 @@ class DesireCore:
         intent = pick_intent(self.drive, boost, query_hint=query_hint)
         return self._output(intent, [])
 
+    # -- 互动积累 ---------------------------------------------------------
+
+    def observe_interaction(self) -> None:
+        """每次真实对话后调一次：attachment += 0.03，独立于 longing。"""
+        from .drive import observe_interaction as _observe
+        _observe(self.drive)
+        self.store.save_drive(self.drive, self._last_tick_ms, self.owner)
+
     # -- 做完事，回落 -----------------------------------------------------
 
     def satisfy(self, action: str) -> None:

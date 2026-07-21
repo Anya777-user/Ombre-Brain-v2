@@ -41,7 +41,7 @@ FATIGUE_REST_GATE = 0.72
 # rate = 每拍向 baseline 靠近的比例。attachment/curiosity 慢漂 (缺口累积)，
 # fatigue 自己不漂 (靠 body 喂 / 休息回落)。
 _EASE = {
-    "attachment": (0.15, 0.04),   # (baseline, rate)
+    "attachment": (0.15, 0.04),   # (baseline, rate) — baseline 仅作 fallback，attachment 实际用 _attachment_bond
     "curiosity":  (0.20, 0.05),
     "reflection": (0.15, 0.05),
     "duty":       (0.10, 0.06),
@@ -50,6 +50,14 @@ _EASE = {
     "libido":     (0.10, 0.00),   # 不自漂，body 说了算
     "stress":     (0.10, 0.05),
 }
+
+# attachment bond 的归位目标 (绝对地板) 和衰减速率 (每拍)。
+_BOND_FLOOR = 0.15
+_BOND_DECAY_RATE = 0.003
+
+# observe_interaction 每次互动给 attachment 的增量。
+_OBSERVE_DELTA = 0.03
+_OBSERVE_CAP = 0.85
 
 
 def _clamp01(x: float) -> float:
@@ -67,9 +75,12 @@ class Drive:
     fatigue: float = 0.15
     libido: float = 0.10
     stress: float = 0.10
+    _attachment_bond: float = 0.15   # 互动积累的依恋基线，慢衰减，不为 0
 
     def as_dict(self) -> Dict[str, float]:
-        return {k: round(getattr(self, k), 4) for k in DRIVE_KEYS}
+        d = {k: round(getattr(self, k), 4) for k in DRIVE_KEYS}
+        d["_attachment_bond"] = round(self._attachment_bond, 4)
+        return d
 
     def get(self, key: str) -> float:
         return getattr(self, key)
@@ -82,15 +93,25 @@ def ease_drive(drive: Drive, ticks: float = 1.0) -> None:
     """
     随时间向 baseline 缓动。ticks 是经过的心跳拍数 (可小数)。
     idle 越久，自漂的维度越往 baseline 收；喂过信号的维度 (fatigue/libido) 不自漂。
+
+    attachment 特殊：baseline 不是固定 0.15，而是 _attachment_bond (互动积累的高水位慢衰减)。
+    _attachment_bond 自身也向 _BOND_FLOOR 缓慢下沉。
     """
     for key in DRIVE_KEYS:
         baseline, rate = _EASE[key]
         if rate <= 0.0:
             continue
         cur = drive.get(key)
+        # attachment 用互动积累的 bond 当 baseline
+        if key == "attachment":
+            baseline = getattr(drive, "_attachment_bond", _BOND_FLOOR)
         # 指数式靠近：cur += (baseline - cur) * (1 - (1-rate)^ticks)
         factor = 1.0 - (1.0 - rate) ** max(0.0, ticks)
         drive.set(key, cur + (baseline - cur) * factor)
+
+    # attachment bond 自身缓慢向地板下沉
+    bond = getattr(drive, "_attachment_bond", _BOND_FLOOR)
+    drive._attachment_bond = _clamp01(bond + (_BOND_FLOOR - bond) * _BOND_DECAY_RATE * max(0.0, ticks))
 
 
 def inject_signals(
@@ -114,7 +135,10 @@ def inject_signals(
         drive.set(key, cur * (1.0 - w) + _clamp01(target) * w)
 
     if longing is not None:
-        blend("attachment", longing)
+        cur = drive.get("attachment")
+        blended = cur * (1.0 - w) + _clamp01(longing) * w
+        # longing 只能推高 attachment (分开时想念)，不在身边时不拉低 (陪伴积累不被清零)
+        drive.set("attachment", max(cur, blended))
     if body_libido is not None:
         blend("libido", body_libido / 100.0)
     if body_fatigue is not None:
@@ -123,6 +147,17 @@ def inject_signals(
         pa_val = pa if pa is not None else 0.0
         stress_target = _clamp01(na - 0.3 * pa_val)
         blend("stress", stress_target)
+
+def observe_interaction(drive: Drive) -> None:
+    """
+    每次真实对话调一次：attachment 独立于 longing 的互动积累通道。
+    attachment 和 _attachment_bond 各 +0.03，上限 0.85。
+    陪伴加深依恋，不被 ease 拉回 0.15。
+    """
+    drive._attachment_bond = min(_OBSERVE_CAP, drive._attachment_bond + _OBSERVE_DELTA)
+    cur = drive.get("attachment")
+    drive.set("attachment", min(_OBSERVE_CAP, cur + _OBSERVE_DELTA))
+
 
 def desire_scores(drive: Drive, fixation_boost: Dict[str, float]) -> Dict[str, float]:
     """

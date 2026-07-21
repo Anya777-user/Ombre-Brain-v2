@@ -28,6 +28,9 @@ class DesireStore:
                 for k in DRIVE_KEYS:
                     if k in d.get("drive", {}):
                         drive.set(k, d["drive"][k])
+                # 互动积累的依恋基线
+                if "_attachment_bond" in d.get("drive", {}):
+                    drive._attachment_bond = d["drive"]["_attachment_bond"]
                 last = d.get("last_tick_ms", now_ms())
                 return drive, last
             except Exception:

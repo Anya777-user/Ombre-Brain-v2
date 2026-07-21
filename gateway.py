@@ -1516,7 +1516,11 @@ class GatewayService:
         # 步骤2：四层状态驱动判断，异常兜底放行
         try:
             tick_result = self.heart_engine.tick("Kitty")
-            desire_out  = self.desire_engine.peek()
+            desire_out  = self.desire_engine.tick(
+                longing=tick_result.longing,
+                na=tick_result.snapshot.na,
+                pa=tick_result.snapshot.pa,
+            )
 
             if tick_result.longing < 0.35:
                 return False, f"longing 不够 ({tick_result.longing:.2f})"
@@ -2441,6 +2445,18 @@ class GatewayService:
                 )
         for bucket_id in recalled_ids:
             await self.bucket_mgr.touch(bucket_id)
+
+        # ---- Lumen 四层写回：刷新 last_contact + 互动积累 attachment ----
+        try:
+            self.heart_engine.store.update_contact_time("Kitty")
+            self.desire_engine.observe_interaction()
+        except Exception as _lumen_exc:
+            logger.warning(
+                "Lumen post-round update failed | session=%s error=%s",
+                session_id,
+                _lumen_exc,
+            )
+
         logger.info(
             "Gateway round completed | session=%s round=%s recalled=%s",
             session_id,
