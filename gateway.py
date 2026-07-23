@@ -2391,13 +2391,26 @@ class GatewayService:
         route: str = "",
         upstream_usage: dict[str, Any] | None = None,
     ) -> None:
+        # ---- 护栏时间刷新：每次用户对话都刷 completed_at / last_contact_ms，
+        #      不受 is_new_user_turn / recalled_ids 影响 ----
+        round_id = self.state_store.record_success(session_id, recalled_ids or [])
+        try:
+            self.heart_engine.store.update_contact_time("Kitty")
+            self.desire_engine.observe_interaction()
+        except Exception as _lumen_exc:
+            logger.warning(
+                "Lumen post-round update failed | session=%s error=%s",
+                session_id,
+                _lumen_exc,
+            )
+
         if recalled_ids is None:
             logger.info(
                 "Gateway round bookkeeping skipped | session=%s reason=not_current_user_turn",
                 session_id,
             )
             return
-        round_id = self.state_store.record_success(session_id, recalled_ids)
+
         if injection_debug and injection_debug.get("recent_context_injected"):
             try:
                 self.state_store.record_recent_context_injection(session_id, round_id)
@@ -2445,17 +2458,6 @@ class GatewayService:
                 )
         for bucket_id in recalled_ids:
             await self.bucket_mgr.touch(bucket_id)
-
-        # ---- Lumen 四层写回：刷新 last_contact + 互动积累 attachment ----
-        try:
-            self.heart_engine.store.update_contact_time("Kitty")
-            self.desire_engine.observe_interaction()
-        except Exception as _lumen_exc:
-            logger.warning(
-                "Lumen post-round update failed | session=%s error=%s",
-                session_id,
-                _lumen_exc,
-            )
 
         logger.info(
             "Gateway round completed | session=%s round=%s recalled=%s",
