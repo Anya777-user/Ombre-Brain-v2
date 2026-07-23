@@ -1072,7 +1072,8 @@ class GatewayService:
         if auth_result is not None:
             return auth_result
 
-        session_id = (request.headers.get("X-Ombre-Session-Id") or self.default_session_id).strip()
+        # 单用户系统，session_id 归一成 default_session_id，避免 db 分家
+        session_id = self.default_session_id
         client_label = self._client_label_from_request(request, "/v1/chat/completions")
 
         try:
@@ -1184,7 +1185,8 @@ class GatewayService:
         if auth_result is not None:
             return auth_result
 
-        session_id = (request.headers.get("X-Ombre-Session-Id") or self.default_session_id).strip()
+        # 单用户系统，session_id 归一成 default_session_id，避免 db 分家
+        session_id = self.default_session_id
         client_label = self._client_label_from_request(request, "/v1/messages")
 
         try:
@@ -1501,17 +1503,13 @@ class GatewayService:
             return False, f"静默窗口 hour={hour}"
 
         # 护栏二：防连发，距上次对话至少 25 分钟
-        last_success = self.state_store.get_last_success_at(self.default_session_id)
-        if last_success:
-            now_utc = datetime.now(timezone.utc)
-            last_utc = (
-                last_success.replace(tzinfo=timezone.utc)
-                if last_success.tzinfo is None
-                else last_success
-            )
-            idle_minutes = (now_utc - last_utc).total_seconds() / 60
-            if idle_minutes < 25:
-                return False, f"防连发 idle={idle_minutes:.1f}min"
+        # 读 heartcore_state.last_contact_ms，不读 SQLite request_rounds
+        # ——避免 session_id 错位导致读到的永远是旧时间
+        last_contact_ms = self.heart_engine.store.get_last_contact_ms("Kitty")
+        now_ms = int(time.time() * 1000)
+        idle_minutes = (now_ms - last_contact_ms) / 60_000
+        if idle_minutes < 25:
+            return False, f"防连发 idle={idle_minutes:.1f}min"
 
         # 步骤2：四层状态驱动判断，异常兜底放行
         try:
