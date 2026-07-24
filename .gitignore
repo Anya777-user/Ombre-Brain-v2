@@ -6,7 +6,7 @@ __pycache__/
 .claude/settings.local.json
 .claude/hooks/__pycache__/
 .vscode/
-config.yaml
+# config.yaml  # removed — Railway build needs it, no secrets inside
 compose.local.yml
 connection_guide.txt
 start_mobile.sh
