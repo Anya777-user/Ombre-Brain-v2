@@ -523,8 +523,21 @@ class PersonaStateEngine:
             raw = response.choices[0].message.content if response.choices else ""
             parsed = self._parse_json(raw or "")
             if parsed is None:
-                logger.warning("Persona evaluator returned malformed JSON")
-                return None, raw or "", "persona LLM returned malformed JSON"
+                logger.warning("Persona evaluator returned malformed JSON — using neutral fallback")
+                parsed = {
+                    "event_type": "neutral",
+                    "perceived_intent": "未识别",
+                    "surface_trigger": "模型输出解析失败",
+                    "inner_thought": "刚才好像有点卡住了",
+                    "affect_delta": {"valence": 0.0, "arousal": 0.0, "tenderness": 0.0, "possessiveness": 0.0, "longing": 0.0, "security": 0.0, "protective_drive": 0.0},
+                    "relationship_event": False,
+                    "relationship_delta": {"affinity": 0.0, "dominance": 0.0, "defensiveness": 0.0, "trust": 0.0},
+                    "personality_signal": False,
+                    "personality_delta": {"openness": 0.0, "conscientiousness": 0.0, "extraversion": 0.0, "agreeableness": 0.0, "neuroticism": 0.0},
+                    "mood_label": "warm_neutral",
+                    "residue": "",
+                    "confidence": 0.3,
+                }
             return self._normalize_evaluation(parsed), raw or "", None
         except Exception as exc:
             logger.warning("Persona evaluation failed: %s", exc)
@@ -534,9 +547,11 @@ class PersonaStateEngine:
         text = raw.strip()
         if not text:
             return None
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        # 去掉所有 markdown code fences（不论位置）
+        text = re.sub(r"```(?:json)?\s*", "", text)
+        text = text.replace("```", "")
+        # 非贪婪匹配第一个完整 JSON 对象（支持嵌套）
+        match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, flags=re.DOTALL)
         if match:
             text = match.group(0)
         try:
@@ -1266,6 +1281,7 @@ class PersonaStateEngine:
         options: dict[str, Any] = {
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
+            "response_format": {"type": "json_object"},
         }
         if self.thinking_mode:
             options["extra_body"] = {"thinking": {"type": self.thinking_mode}}
