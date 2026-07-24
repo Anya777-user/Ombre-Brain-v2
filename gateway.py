@@ -1640,6 +1640,18 @@ class GatewayService:
             self._append_proactive_history(cleared)
         return JSONResponse({"ok": True})
 
+    async def handle_proactive_flag_post(self, request: Request) -> JSONResponse:
+        auth_result = self._authorize(request.headers.get("Authorization", ""))
+        if auth_result is not None:
+            return auth_result
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        reason = str(body.get("reason") or "manual").strip()[:200]
+        self._write_proactive_flag(reason)
+        return JSONResponse(self._read_proactive_flag(), status_code=201)
+
     async def handle_mcp_proxy(self, request: Request) -> Response:
         """Proxy MCP Streamable HTTP transport to internal server (:8000)."""
 
@@ -10389,6 +10401,9 @@ def create_gateway_app(
     async def proactive_flag_delete(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_proactive_flag_delete(request)
 
+    async def proactive_flag_post(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_proactive_flag_post(request)
+
     async def mcp_proxy(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_mcp_proxy(request)
 
@@ -10414,6 +10429,7 @@ def create_gateway_app(
             Route("/api/proactive/poll", proactive_poll_route, methods=["GET"]),
             Route("/api/proactive/flag", proactive_flag_get, methods=["GET"]),
             Route("/api/proactive/flag", proactive_flag_delete, methods=["DELETE"]),
+            Route("/api/proactive/flag", proactive_flag_post, methods=["POST"]),
             Route("/api/{path:path}", api_proxy, methods=["GET", "POST", "PUT", "DELETE", "PATCH"]),
             Route("/mcp", mcp_proxy, methods=["GET", "POST", "DELETE"]),
             Route("/mcp/{path:path}", mcp_proxy, methods=["GET", "POST", "DELETE"]),
