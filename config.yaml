@@ -141,6 +141,19 @@ gateway:
     - "[羊毛cursor]claude-opus-4-8"
     - "[羊毛cursor]claude-fable-5"
     - "[特特价次kiro]claude-sonnet-5"
+  - name: "jixiang"
+    base_url: "https://cn.jixiangai.xyz/v1"
+    api_key_env: "OMBRE_GATEWAY_JIXIANG_API_KEY"
+    models:
+    - "[C]claude-opus-4.8-thinking"
+    - "[C1]claude-opus-4.8-thinking"
+    - "[E]claude-opus-4.8-thinking"
+    - "[C]claude-opus-4-6-thinking"
+    - "[C1]claude-opus-4-6-thinking"
+    - "[E]claude-opus-4-6-thinking"
+    - "[G]claude-opus-4-6-thinking"
+    - "[P]claude-opus-4.8"
+    - "[P]claude-opus-4-6"
   upstream_base_url: ''
   upstream_default_model: ''
   prompt_cache: ''
@@ -451,3 +464,12 @@ wikilink:
   auto_top_k: 4
   min_keyword_len: 3
   exclude_keywords: []
+proactive:
+  enabled: true
+  poll_interval_minutes: 15
+  quiet_hours_start: 23
+  quiet_hours_end: 7
+  # ntfy 推送通道：server / topic / token 全部走环境变量，不进 yaml
+  #   OMBRE_NTFY_SERVER  — ntfy 服务器地址，例如 https://ntfy.sh
+  #   OMBRE_NTFY_TOPIC   — 私有 topic（随机 32 字符，不可猜测）
+  #   OMBRE_NTFY_TOKEN   — Bearer token 鉴权
