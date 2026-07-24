@@ -84,7 +84,7 @@ class PersonaStateEngine:
             self.persona_cfg.get("thinking_mode", "")
         )
         self.temperature = float(self.persona_cfg.get("temperature", 0.1))
-        self.max_tokens = int(self.persona_cfg.get("max_tokens", 500))
+        self.max_tokens = int(self.persona_cfg.get("max_tokens", 1500))
         self.session_mood_half_life_minutes = float(
             self.persona_cfg.get("session_mood_half_life_minutes", 90)
         )
@@ -523,7 +523,7 @@ class PersonaStateEngine:
             raw = response.choices[0].message.content if response.choices else ""
             parsed = self._parse_json(raw or "")
             if parsed is None:
-                logger.warning("Persona evaluator returned malformed JSON — using neutral fallback")
+                logger.warning("Persona evaluator returned malformed JSON — using neutral fallback. raw=%s", str(raw)[:300])
                 parsed = {
                     "event_type": "neutral",
                     "perceived_intent": "未识别",
@@ -550,15 +550,57 @@ class PersonaStateEngine:
         # 去掉所有 markdown code fences（不论位置）
         text = re.sub(r"```(?:json)?\s*", "", text)
         text = text.replace("```", "")
-        # 非贪婪匹配第一个完整 JSON 对象（支持嵌套）
-        match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, flags=re.DOTALL)
-        if match:
-            text = match.group(0)
+        text = text.strip()
+
+        # 先尝试直接解析（response_format=json_object 生效时 LLM 直接返回纯 JSON）
         try:
             parsed = json.loads(text)
-            return parsed if isinstance(parsed, dict) else None
+            if isinstance(parsed, dict):
+                return parsed
         except json.JSONDecodeError:
+            pass
+
+        # 回退：从第一个 { 开始，逐字符扫描括号深度
+        # 正确处理 JSON 字符串内的 {}、转义引号，支持任意嵌套深度
+        start = text.find("{")
+        if start == -1:
             return None
+
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            c = text[i]
+            if escape:
+                escape = False
+                continue
+            if c == "\\" and in_string:
+                escape = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start : i + 1]
+                    try:
+                        parsed = json.loads(candidate)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
+                    # 这个完整对象解析失败，从下一个 { 继续
+                    start = text.find("{", i + 1)
+                    if start == -1:
+                        return None
+                    depth = 0
+
+        return None
 
     def _normalize_evaluation(self, data: dict) -> dict:
         raw_relationship_delta = data.get("relationship_delta", {})

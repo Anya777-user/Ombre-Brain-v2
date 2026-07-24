@@ -322,7 +322,7 @@ persona:
   model: deepseek-v4-flash
   thinking_mode: ''
   temperature: 0.1
-  max_tokens: 500
+  max_tokens: 1500
   global_decay_hours: 168
   session_mood_half_life_minutes: 90
   max_personality_delta: 0.01
