@@ -7,6 +7,7 @@ import json
 import codecs
 import time
 import asyncio
+from pathlib import Path
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import replace
@@ -389,6 +390,16 @@ class GatewayService:
             self.gateway_tz = ZoneInfo("Asia/Shanghai")
         self.heart_engine = HeartCore(Store(path=os.path.join(config["buckets_dir"], "heartcore_state.json")))
         self.desire_engine = DesireCore(store=DesireStore(path=os.path.join(config["buckets_dir"], "desire_state.json")))
+        # proactive flag mailbox
+        proactive_cfg = config.get("proactive", {}) if isinstance(config.get("proactive", {}), dict) else {}
+        self._proactive_flag_path = os.path.join(
+            config["buckets_dir"],
+            proactive_cfg.get("flag_path", "proactive_pending.json"),
+        )
+        self._proactive_history_path = os.path.join(
+            config["buckets_dir"],
+            proactive_cfg.get("history_path", "proactive_history.jsonl"),
+        )
         self.favorite_memory_budget = int(self.gateway_cfg.get("favorite_memory_budget", 180))
         self.favorite_memory_max_cards = max(0, int(self.gateway_cfg.get("favorite_memory_max_cards", 1)))
         self.related_memory_budget = int(self.gateway_cfg.get("related_memory_budget", 220))
@@ -1489,11 +1500,14 @@ class GatewayService:
         auth_result = self._authorize(request.headers.get("Authorization", ""))
         if auth_result is not None:
             return auth_result
-        pending, reason = await self._should_speak_now()
+        pending, reason = self._should_speak_now()
         self._log_poll_decision(pending=pending, reason=reason)
+        if pending:
+            self._write_proactive_flag(reason)
+            self.heart_engine.store.update_proactive_time("Kitty")
         return JSONResponse({"pending": pending})
 
-    async def _should_speak_now(self) -> tuple[bool, str]:
+    def _should_speak_now(self) -> tuple[bool, str]:
         now = datetime.now(self.gateway_tz)
         hour = now.hour
 
@@ -1502,14 +1516,18 @@ class GatewayService:
         if QUIET_ENABLED and (hour >= 23 or hour < 7):
             return False, f"静默窗口 hour={hour}"
 
-        # 护栏二：防连发，距上次对话至少 25 分钟
-        # 读 heartcore_state.last_contact_ms，不读 SQLite request_rounds
-        # ——避免 session_id 错位导致读到的永远是旧时间
-        last_contact_ms = self.heart_engine.store.get_last_contact_ms("Kitty")
+        # 护栏二：双冷却 — last_contact + last_proactive 都要 ≥25min
         now_ms = int(time.time() * 1000)
+
+        last_contact_ms = self.heart_engine.store.get_last_contact_ms("Kitty")
         idle_minutes = (now_ms - last_contact_ms) / 60_000
         if idle_minutes < 25:
-            return False, f"防连发 idle={idle_minutes:.1f}min"
+            return False, f"防连发(contact) idle={idle_minutes:.1f}min"
+
+        last_proactive_ms = self.heart_engine.store.get_last_proactive_ms("Kitty")
+        proactive_idle = (now_ms - last_proactive_ms) / 60_000
+        if proactive_idle < 25:
+            return False, f"防连发(proactive) idle={proactive_idle:.1f}min"
 
         # 步骤2：四层状态驱动判断，异常兜底放行
         try:
@@ -1547,6 +1565,80 @@ class GatewayService:
             "reason": reason,
         }
         logging.getLogger("proactive").info(json.dumps(record, ensure_ascii=False))
+
+    # ------------------------------------------------------------------
+    # proactive flag mailbox — file-based read / write / clear / history
+    # ------------------------------------------------------------------
+
+    def _read_proactive_flag(self) -> dict:
+        """Return {pending, ts, reason} or {pending: false}."""
+        try:
+            p = Path(self._proactive_flag_path)
+            if p.exists():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                return {
+                    "pending": True,
+                    "ts": data.get("ts", ""),
+                    "reason": data.get("reason", ""),
+                }
+        except Exception:
+            pass
+        return {"pending": False}
+
+    def _write_proactive_flag(self, reason: str) -> None:
+        """Write the pending flag to disk (called when daemon decides PROCEED)."""
+        p = Path(self._proactive_flag_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "pending": True,
+            "ts": datetime.now(self.gateway_tz).isoformat(),
+            "reason": reason,
+        }
+        p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _clear_proactive_flag(self) -> dict | None:
+        """Delete the pending flag.  Returns the cleared payload for history,
+        or None if no flag was present."""
+        p = Path(self._proactive_flag_path)
+        try:
+            if p.exists():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                p.unlink()
+                return data
+        except Exception:
+            pass
+        return None
+
+    def _append_proactive_history(self, flag_payload: dict) -> None:
+        """Append a cleared-flag record to the history JSONL."""
+        p = Path(self._proactive_history_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "cleared_ts": datetime.now(self.gateway_tz).isoformat(),
+            "flag_ts": flag_payload.get("ts", ""),
+            "reason": flag_payload.get("reason", ""),
+        }
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    # ------------------------------------------------------------------
+    # flag endpoints
+    # ------------------------------------------------------------------
+
+    async def handle_proactive_flag_get(self, request: Request) -> JSONResponse:
+        auth_result = self._authorize(request.headers.get("Authorization", ""))
+        if auth_result is not None:
+            return auth_result
+        return JSONResponse(self._read_proactive_flag())
+
+    async def handle_proactive_flag_delete(self, request: Request) -> JSONResponse:
+        auth_result = self._authorize(request.headers.get("Authorization", ""))
+        if auth_result is not None:
+            return auth_result
+        cleared = self._clear_proactive_flag()
+        if cleared is not None:
+            self._append_proactive_history(cleared)
+        return JSONResponse({"ok": True})
 
     async def handle_mcp_proxy(self, request: Request) -> Response:
         """Proxy MCP Streamable HTTP transport to internal server (:8000)."""
@@ -10291,6 +10383,12 @@ def create_gateway_app(
     async def proactive_poll_route(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_proactive_poll(request)
 
+    async def proactive_flag_get(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_proactive_flag_get(request)
+
+    async def proactive_flag_delete(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_proactive_flag_delete(request)
+
     async def mcp_proxy(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_mcp_proxy(request)
 
@@ -10314,6 +10412,8 @@ def create_gateway_app(
             Route("/api/debug/upstream-usage", upstream_usage_debug, methods=["GET"]),
             Route("/debug/db/last", db_last, methods=["GET"]),
             Route("/api/proactive/poll", proactive_poll_route, methods=["GET"]),
+            Route("/api/proactive/flag", proactive_flag_get, methods=["GET"]),
+            Route("/api/proactive/flag", proactive_flag_delete, methods=["DELETE"]),
             Route("/api/{path:path}", api_proxy, methods=["GET", "POST", "PUT", "DELETE", "PATCH"]),
             Route("/mcp", mcp_proxy, methods=["GET", "POST", "DELETE"]),
             Route("/mcp/{path:path}", mcp_proxy, methods=["GET", "POST", "DELETE"]),

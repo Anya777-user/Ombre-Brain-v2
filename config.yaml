@@ -113,6 +113,11 @@ moment_annotations:
   max_summary_chars: 160
   max_evidence_spans: 3
   max_evidence_chars: 120
+proactive:
+  flag_path: proactive_pending.json
+  history_path: proactive_history.jsonl
+  cooldown_minutes: 25
+
 gateway:
   host: 0.0.0.0
   port: 8010

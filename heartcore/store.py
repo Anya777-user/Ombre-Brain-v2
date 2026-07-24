@@ -80,3 +80,14 @@ class Store:
     def get_last_contact_ms(self, name: str) -> int:
         data = self._load()
         return data.get(name, {}).get("last_contact_ms", now_ms())
+
+    def update_proactive_time(self, name: str) -> None:
+        data = self._load()
+        if name not in data:
+            data[name] = {}
+        data[name]["last_proactive_ms"] = now_ms()
+        self._save(data)
+
+    def get_last_proactive_ms(self, name: str) -> int:
+        data = self._load()
+        return data.get(name, {}).get("last_proactive_ms", 0)
