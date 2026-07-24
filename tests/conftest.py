@@ -107,7 +107,7 @@ def test_config(tmp_path):
             "profile_id": "haven_xiaoyu",
             "mode": "llm",
             "base_url": "https://api.deepseek.com/v1",
-            "model": "deepseek-chat",
+            "model": "deepseek-v4-flash",
             "api_key": "",
             "temperature": 0.1,
             "max_tokens": 500,

@@ -72,7 +72,7 @@ def load_config(config_path: str = None) -> dict:
             "user_aliases": ["对方"],
         },
         "dehydration": {
-            "model": "deepseek-chat",
+            "model": "deepseek-v4-flash",
             "base_url": "https://api.deepseek.com/v1",
             "api_key": "",
             "thinking_mode": "",
@@ -221,7 +221,7 @@ def load_config(config_path: str = None) -> dict:
             "profile_id": "haven_xiaoyu",
             "mode": "llm",
             "base_url": "https://api.deepseek.com/v1",
-            "model": "deepseek-chat",
+            "model": "deepseek-v4-flash",
             "api_key": "",
             "thinking_mode": "",
             "temperature": 0.1,

@@ -79,7 +79,7 @@ class PersonaStateEngine:
         self.profile_id = self.persona_cfg.get("profile_id", "haven_xiaoyu")
         self.mode = self.persona_cfg.get("mode", "llm")
         self.base_url = self.persona_cfg.get("base_url", "https://api.deepseek.com/v1")
-        self.model = self.persona_cfg.get("model", "deepseek-chat")
+        self.model = self.persona_cfg.get("model", "deepseek-v4-flash")
         self.thinking_mode = self._normalize_thinking_mode(
             self.persona_cfg.get("thinking_mode", "")
         )

@@ -1245,7 +1245,7 @@ first_deploy() {
 
   local dehy_base_url dehy_model dehy_key
   dehy_base_url="$(prompt_text '脱水/导入抽取 base_url' 'https://api.deepseek.com/v1')"
-  dehy_model="$(prompt_text '脱水/导入抽取模型' 'deepseek-chat')"
+  dehy_model="$(prompt_text '脱水/导入抽取模型' 'deepseek-v4-flash')"
   dehy_key="$(prompt_secret '脱水模型 key（OMBRE_API_KEY，必填）' true)"
 
   local embedding_enabled embedding_base_url embedding_model embedding_key

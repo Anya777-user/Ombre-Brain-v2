@@ -1467,14 +1467,14 @@ def test_gateway_routes_multi_upstreams_by_model(monkeypatch, test_config, bucke
         test_config,
         upstream_base_url="",
         upstream_models=[],
-        upstream_default_model="deepseek-chat",
+        upstream_default_model="deepseek-v4-flash",
         upstreams=[
             {
                 "name": "deepseek",
                 "base_url": "https://api.deepseek.com/v1",
                 "api_key_env": "OMBRE_GATEWAY_DEEPSEEK_API_KEY",
-                "default_model": "deepseek-chat",
-                "models": ["deepseek-chat", "deepseek-reasoner"],
+                "default_model": "deepseek-v4-flash",
+                "models": ["deepseek-v4-flash", "deepseek-reasoner"],
             },
             {
                 "name": "siliconflow",
@@ -1524,7 +1524,7 @@ def test_gateway_routes_multi_upstreams_by_model(monkeypatch, test_config, bucke
 
     assert models_response.status_code == 200
     assert [model["id"] for model in models_response.json()["data"]] == [
-        "deepseek-chat",
+        "deepseek-v4-flash",
         "deepseek-reasoner",
         "Qwen/Qwen3-32B",
         "THUDM/GLM-4-32B",
@@ -1533,7 +1533,7 @@ def test_gateway_routes_multi_upstreams_by_model(monkeypatch, test_config, bucke
     assert response_sf.status_code == 200
     assert captured[0]["url"] == "https://api.deepseek.com/v1/chat/completions"
     assert captured[0]["auth"] == "Bearer deepseek-secret"
-    assert captured[0]["json"]["model"] == "deepseek-chat"
+    assert captured[0]["json"]["model"] == "deepseek-v4-flash"
     assert captured[1]["url"] == "https://api.siliconflow.cn/v1/chat/completions"
     assert captured[1]["auth"] == "Bearer siliconflow-secret"
     assert captured[1]["json"]["model"] == "THUDM/GLM-4-32B"
@@ -1686,7 +1686,7 @@ def test_gateway_retries_next_api_key_for_retryable_error(monkeypatch, test_conf
         test_config,
         upstream_base_url="",
         upstream_models=[],
-        upstream_default_model="deepseek-chat",
+        upstream_default_model="deepseek-v4-flash",
         upstreams=[
             {
                 "name": "provider",
@@ -1695,7 +1695,7 @@ def test_gateway_retries_next_api_key_for_retryable_error(monkeypatch, test_conf
                     "OMBRE_GATEWAY_PROVIDER_KEY_1",
                     "OMBRE_GATEWAY_PROVIDER_KEY_2",
                 ],
-                "models": ["deepseek-chat"],
+                "models": ["deepseek-v4-flash"],
             }
         ],
     )
@@ -1757,7 +1757,7 @@ def test_gateway_does_not_retry_non_retryable_upstream_error(monkeypatch, test_c
         test_config,
         upstream_base_url="",
         upstream_models=[],
-        upstream_default_model="deepseek-chat",
+        upstream_default_model="deepseek-v4-flash",
         upstreams=[
             {
                 "name": "provider",
@@ -1766,7 +1766,7 @@ def test_gateway_does_not_retry_non_retryable_upstream_error(monkeypatch, test_c
                     "OMBRE_GATEWAY_PROVIDER_KEY_1",
                     "OMBRE_GATEWAY_PROVIDER_KEY_2",
                 ],
-                "models": ["deepseek-chat"],
+                "models": ["deepseek-v4-flash"],
             }
         ],
     )
@@ -1822,7 +1822,7 @@ def test_gateway_stream_retries_next_api_key_before_streaming(monkeypatch, test_
         test_config,
         upstream_base_url="",
         upstream_models=[],
-        upstream_default_model="deepseek-chat",
+        upstream_default_model="deepseek-v4-flash",
         upstreams=[
             {
                 "name": "provider",
@@ -1831,7 +1831,7 @@ def test_gateway_stream_retries_next_api_key_before_streaming(monkeypatch, test_
                     "OMBRE_GATEWAY_PROVIDER_KEY_1",
                     "OMBRE_GATEWAY_PROVIDER_KEY_2",
                 ],
-                "models": ["deepseek-chat"],
+                "models": ["deepseek-v4-flash"],
             }
         ],
     )

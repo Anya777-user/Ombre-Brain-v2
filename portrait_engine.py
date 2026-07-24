@@ -156,7 +156,7 @@ class DailyPortraitMaintainer:
             or cfg.get("model")
             or reflection_cfg.get("model")
             or persona_cfg.get("model")
-            or dehy_cfg.get("model", "deepseek-chat")
+            or dehy_cfg.get("model", "deepseek-v4-flash")
         )
         self.api_key = (
             os.environ.get("OMBRE_PORTRAIT_API_KEY", "")

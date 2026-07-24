@@ -428,7 +428,7 @@ async def test_persona_dashboard_payload_lists_state_sessions_and_events(test_co
     assert payload["events"][0]["assistant_excerpt"] == "我也爱你。"
     assert payload["events"][0]["affect_delta"]["valence"] == pytest.approx(0.05)
     assert payload["config"]["event_recording_enabled"] is True
-    assert payload["config"]["model"] == "deepseek-chat"
+    assert payload["config"]["model"] == "deepseek-v4-flash"
 
 
 @pytest.mark.asyncio
