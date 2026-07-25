@@ -113,11 +113,6 @@ moment_annotations:
   max_summary_chars: 160
   max_evidence_spans: 3
   max_evidence_chars: 120
-proactive:
-  flag_path: proactive_pending.json
-  history_path: proactive_history.jsonl
-  cooldown_minutes: 25
-
 gateway:
   host: 0.0.0.0
   port: 8010
@@ -471,8 +466,12 @@ wikilink:
 proactive:
   enabled: true
   poll_interval_minutes: 15
+  quiet_hours_enabled: false
   quiet_hours_start: 23
   quiet_hours_end: 7
+  flag_path: proactive_pending.json
+  history_path: proactive_history.jsonl
+  cooldown_minutes: 25
   # ntfy 推送通道：server / topic / token 全部走环境变量，不进 yaml
   #   OMBRE_NTFY_SERVER  — ntfy 服务器地址，例如 https://ntfy.sh
   #   OMBRE_NTFY_TOPIC   — 私有 topic（随机 32 字符，不可猜测）

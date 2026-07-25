@@ -400,6 +400,17 @@ class GatewayService:
             config["buckets_dir"],
             proactive_cfg.get("history_path", "proactive_history.jsonl"),
         )
+        self._proactive_enabled = bool(proactive_cfg.get("enabled", False))
+        self._proactive_poll_interval = max(5, int(proactive_cfg.get("poll_interval_minutes", 15)))
+        self._proactive_quiet_start = int(proactive_cfg.get("quiet_hours_start", 23))
+        self._proactive_quiet_end = int(proactive_cfg.get("quiet_hours_end", 7))
+        self._proactive_quiet_enabled = bool(proactive_cfg.get("quiet_hours_enabled", False))
+        self._proactive_cooldown_minutes = max(5, int(proactive_cfg.get("cooldown_minutes", 25)))
+        self._proactive_poll_task: "asyncio.Task[None] | None" = None
+        self._proactive_watchdog_task: "asyncio.Task[None] | None" = None
+        self._last_poll_reason: str = ""
+        self._last_poll_pending: bool = False
+        self._last_poll_ts: str = ""
         self.favorite_memory_budget = int(self.gateway_cfg.get("favorite_memory_budget", 180))
         self.favorite_memory_max_cards = max(0, int(self.gateway_cfg.get("favorite_memory_max_cards", 1)))
         self.related_memory_budget = int(self.gateway_cfg.get("related_memory_budget", 220))
@@ -533,6 +544,11 @@ class GatewayService:
         self.http_client = http_client or httpx.AsyncClient(timeout=60.0)
 
     async def close(self) -> None:
+        for task_attr in ("_proactive_poll_task", "_proactive_watchdog_task"):
+            task = getattr(self, task_attr, None)
+            if task:
+                task.cancel()
+                setattr(self, task_attr, None)
         if self.http_client and not getattr(self.http_client, "is_closed", False):
             await self.http_client.aclose()
 
@@ -1508,25 +1524,30 @@ class GatewayService:
         return JSONResponse({"pending": pending})
 
     def _should_speak_now(self) -> tuple[bool, str]:
-        now = datetime.now(self.gateway_tz)
+        now = datetime.now(self.gateway_tz)  # tz-aware (Asia/Shanghai)
         hour = now.hour
+        cd = self._proactive_cooldown_minutes
 
-        # 护栏一：静默窗口 23:00-07:00，美国作息默认关
-        QUIET_ENABLED = False
-        if QUIET_ENABLED and (hour >= 23 or hour < 7):
-            return False, f"静默窗口 hour={hour}"
+        # 护栏一：静默窗口。quiet_hours_enabled=false 时整道门跳过。
+        if self._proactive_quiet_enabled:
+            if self._proactive_quiet_start <= self._proactive_quiet_end:
+                if self._proactive_quiet_start <= hour < self._proactive_quiet_end:
+                    return False, f"静默窗口 hour={hour}"
+            else:
+                if hour >= self._proactive_quiet_start or hour < self._proactive_quiet_end:
+                    return False, f"静默窗口 hour={hour}"
 
-        # 护栏二：双冷却 — last_contact + last_proactive 都要 ≥25min
+        # 护栏二：双冷却 — last_contact + last_proactive 都要 ≥ cooldown_minutes
         now_ms = int(time.time() * 1000)
 
         last_contact_ms = self.heart_engine.store.get_last_contact_ms("Kitty")
         idle_minutes = (now_ms - last_contact_ms) / 60_000
-        if idle_minutes < 25:
+        if idle_minutes < cd:
             return False, f"防连发(contact) idle={idle_minutes:.1f}min"
 
         last_proactive_ms = self.heart_engine.store.get_last_proactive_ms("Kitty")
         proactive_idle = (now_ms - last_proactive_ms) / 60_000
-        if proactive_idle < 25:
+        if proactive_idle < cd:
             return False, f"防连发(proactive) idle={proactive_idle:.1f}min"
 
         # 步骤2：四层状态驱动判断，异常兜底放行
@@ -1565,6 +1586,148 @@ class GatewayService:
             "reason": reason,
         }
         logging.getLogger("proactive").info(json.dumps(record, ensure_ascii=False))
+
+    # ------------------------------------------------------------------
+    # proactive background poll — asyncio loop + watchdog + ntfy
+    # ------------------------------------------------------------------
+
+    def start_background_tasks(self) -> None:
+        """Call from lifespan AFTER the event loop is running."""
+        if self._proactive_enabled:
+            self._proactive_poll_task = asyncio.create_task(self._proactive_poll_loop())
+            self._proactive_watchdog_task = asyncio.create_task(self._proactive_watchdog())
+            logging.getLogger("proactive").info(
+                "proactive poll started interval=%dmin cooldown=%dmin quiet_enabled=%s",
+                self._proactive_poll_interval, self._proactive_cooldown_minutes,
+                self._proactive_quiet_enabled,
+            )
+
+    async def _proactive_poll_loop(self) -> None:
+        """Background loop: poll every N minutes. Exception-resistant."""
+        logger = logging.getLogger("proactive")
+        while True:
+            try:
+                pending, reason = await asyncio.to_thread(self._should_speak_now)
+                self._last_poll_ts = datetime.now(self.gateway_tz).isoformat()
+                self._last_poll_pending = pending
+                self._last_poll_reason = reason
+                self._log_poll_decision(pending=pending, reason=reason)
+                if pending:
+                    self._write_proactive_flag(reason)
+                    self.heart_engine.store.update_proactive_time("Kitty")
+                    await self._send_ntfy_push(reason)
+            except asyncio.CancelledError:
+                logger.info("proactive poll loop cancelled")
+                return
+            except Exception:
+                logger.exception("proactive poll iteration failed — will retry next interval")
+            await asyncio.sleep(self._proactive_poll_interval * 60)
+
+    async def _proactive_watchdog(self) -> None:
+        """Watchdog: if the poll task dies silently, restart it."""
+        logger = logging.getLogger("proactive")
+        while True:
+            await asyncio.sleep(60)
+            if self._proactive_poll_task is None:
+                continue
+            if self._proactive_poll_task.done():
+                try:
+                    exc = self._proactive_poll_task.exception()
+                    logger.error("proactive poll task died exception=%s — restarting", exc)
+                except asyncio.InvalidStateError:
+                    logger.error("proactive poll task died without exception — restarting")
+                if self._proactive_enabled:
+                    self._proactive_poll_task = asyncio.create_task(self._proactive_poll_loop())
+                    logger.info("proactive poll task restarted by watchdog")
+
+    async def _send_ntfy_push(self, reason: str) -> None:
+        """Push notification via ntfy when proactive flag is set."""
+        server = os.environ.get("OMBRE_NTFY_SERVER", "").strip()
+        topic = os.environ.get("OMBRE_NTFY_TOPIC", "").strip()
+        if not server or not topic:
+            return
+        try:
+            url = f"{server.rstrip('/')}/{topic}"
+            headers = {"Title": "Lumen 想说话", "Priority": "default", "Tags": "speech_balloon"}
+            token = os.environ.get("OMBRE_NTFY_TOKEN", "").strip()
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            body = f"Lumen proactive trigger: {reason}"
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(url, data=body.encode("utf-8"), headers=headers)
+        except Exception:
+            logger = logging.getLogger("proactive")
+            logger.exception("ntfy push failed")
+
+    # ------------------------------------------------------------------
+    # proactive state — debug endpoint data
+    # ------------------------------------------------------------------
+
+    async def handle_proactive_state(self, request: Request) -> JSONResponse:
+        auth_result = self._authorize(request.headers.get("Authorization", ""))
+        if auth_result is not None:
+            return auth_result
+
+        # read-only snapshot — no tick(), no state mutation
+        gates = {}
+        try:
+            heart_state = self.heart_engine.get_state("Kitty")
+            desire_out = self.desire_engine.peek()
+            gates = {
+                "longing": {
+                    "value": round(heart_state.attachment.longing, 4),
+                    "threshold": 0.35,
+                    "passed": heart_state.attachment.longing >= 0.35,
+                },
+                "desire_attachment": {
+                    "value": round(desire_out.scores.get("attachment", 0.0), 4),
+                    "threshold": 0.50,
+                    "passed": desire_out.scores.get("attachment", 0.0) >= 0.50,
+                },
+                "fatigue_gated": {
+                    "value": desire_out.fatigue_gated,
+                    "threshold": "fatigue_gated == False",
+                    "passed": not desire_out.fatigue_gated,
+                },
+                "stress": {
+                    "value": round(desire_out.drive.get("stress", 0.0), 4),
+                    "threshold": 0.75,
+                    "passed": desire_out.drive.get("stress", 0.0) <= 0.75,
+                },
+                "quiet_hours": {
+                    "enabled": self._proactive_quiet_enabled,
+                    "start": self._proactive_quiet_start,
+                    "end": self._proactive_quiet_end,
+                    "current_hour": datetime.now(self.gateway_tz).hour,
+                },
+            }
+        except Exception as e:
+            gates = {"error": str(e)}
+
+        # anti-burst gate state
+        now_ms = int(time.time() * 1000)
+        last_contact_ms = self.heart_engine.store.get_last_contact_ms("Kitty")
+        last_proactive_ms = self.heart_engine.store.get_last_proactive_ms("Kitty")
+
+        return JSONResponse({
+            "poll": {
+                "enabled": self._proactive_enabled,
+                "interval_minutes": self._proactive_poll_interval,
+                "last_ts": self._last_poll_ts,
+                "last_pending": self._last_poll_pending,
+                "last_reason": self._last_poll_reason,
+                "task_alive": (
+                    self._proactive_poll_task is not None
+                    and not self._proactive_poll_task.done()
+                ),
+            },
+            "gates": gates,
+            "cooldown": {
+                "cooldown_minutes": self._proactive_cooldown_minutes,
+                "contact_idle_min": round((now_ms - last_contact_ms) / 60_000, 1),
+                "proactive_idle_min": round((now_ms - last_proactive_ms) / 60_000, 1),
+            },
+        })
 
     # ------------------------------------------------------------------
     # proactive flag mailbox — file-based read / write / clear / history
@@ -10353,6 +10516,7 @@ def create_gateway_app(
     @asynccontextmanager
     async def lifespan(app: Starlette):
         app.state.gateway_service = service
+        service.start_background_tasks()
         yield
         await service.close()
 
@@ -10404,6 +10568,9 @@ def create_gateway_app(
     async def proactive_flag_post(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_proactive_flag_post(request)
 
+    async def proactive_state_route(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_proactive_state(request)
+
     async def mcp_proxy(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_mcp_proxy(request)
 
@@ -10430,6 +10597,7 @@ def create_gateway_app(
             Route("/api/proactive/flag", proactive_flag_get, methods=["GET"]),
             Route("/api/proactive/flag", proactive_flag_delete, methods=["DELETE"]),
             Route("/api/proactive/flag", proactive_flag_post, methods=["POST"]),
+            Route("/api/proactive/state", proactive_state_route, methods=["GET"]),
             Route("/api/{path:path}", api_proxy, methods=["GET", "POST", "PUT", "DELETE", "PATCH"]),
             Route("/mcp", mcp_proxy, methods=["GET", "POST", "DELETE"]),
             Route("/mcp/{path:path}", mcp_proxy, methods=["GET", "POST", "DELETE"]),
