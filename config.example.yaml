@@ -275,6 +275,10 @@ gateway:
       base_url: "https://cn.jixiangai.xyz/v1"
       api_key_env: "OMBRE_GATEWAY_JIXIANG_API_KEY"
       models:
+        - "[E]claude-opus-5-thinking"
+        - "[C]claude-opus-5-thinking"
+        - "[C1]claude-opus-5-thinking"
+        - "[P]claude-opus-5"
         - "[C]claude-opus-4.8-thinking"
         - "[C1]claude-opus-4.8-thinking"
         - "[E]claude-opus-4.8-thinking"
