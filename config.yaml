@@ -122,6 +122,7 @@ gateway:
     base_url: "https://xn--vduyey89e.com/v1"
     api_key_env: "OMBRE_GATEWAY_XN_API_KEY"
     models:
+    - "[kiro量高缓]claude-opus-5-thinking"
     - "[特特价次kiro]claude-opus-4-8-thinking"
     - "[特特价次kiro]claude-opus-4-6-thinking"
     - "[AG量]claude-opus-4-6-thinking"
