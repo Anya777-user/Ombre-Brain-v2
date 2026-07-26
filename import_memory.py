@@ -50,7 +50,7 @@ _MARKDOWN_USER_LABELS = {
     "我",
     "用户",
     "人类",
-    "小雨",
+    "Anya",
 }
 _MARKDOWN_ASSISTANT_LABELS = {
     "assistant",

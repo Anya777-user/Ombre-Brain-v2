@@ -1239,9 +1239,9 @@ first_deploy() {
   fi
 
   local ai_name user_name user_display_name
-  ai_name="$(prompt_text 'AI 名字' 'Haven')"
-  user_name="$(prompt_text '用户英文/内部名' 'Rain')"
-  user_display_name="$(prompt_text '用户显示名' '小雨')"
+  ai_name="$(prompt_text 'AI 名字' 'Dorian')"
+  user_name="$(prompt_text '用户英文/内部名' 'Anya')"
+  user_display_name="$(prompt_text '用户显示名' 'Anya')"
 
   local dehy_base_url dehy_model dehy_key
   dehy_base_url="$(prompt_text '脱水/导入抽取 base_url' 'https://api.deepseek.com/v1')"

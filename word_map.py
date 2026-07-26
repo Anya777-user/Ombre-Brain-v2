@@ -163,8 +163,8 @@ DEFAULT_OVERVIEW_PRIORITY_TERMS = {
 }
 DEFAULT_OVERVIEW_HUB_TERMS = {
     "ombre-brain",
-    "haven",
-    "小雨",
+    "dorian",
+    "Anya",
 }
 DEFAULT_WEAK_HINT_TERMS = {
     "人机恋",

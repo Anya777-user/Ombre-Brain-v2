@@ -827,7 +827,7 @@ class DailyPortraitMaintainer:
             if re.search(r"(时间|时间戳|证据|准确|精度|边界|画像|handoff|换窗|语气|身份|一致|漂移)", joined, re.IGNORECASE):
                 return self._clip(f"{user_name}近期很在意记忆、语气和身份一致性的证据边界，倾向把换窗上下文压成准确、可追溯的核心状态。", 120)
             if re.search(r"(熬夜|凌晨|很晚|睡觉|工作|调试|修复|测试|部署|Ombre|Haven-voice|bug)", joined, re.IGNORECASE):
-                return self._clip(f"{user_name}近期高强度推进 Ombre/Haven 相关调试，关注修复是否真实接入并生效。", 120)
+                return self._clip(f"{user_name}近期高强度推进 Ombre/Dorian 相关调试，关注修复是否真实接入并生效。", 120)
             return self._clip(f"{user_name}近期的注意力集中在证据化记忆和换窗连续性上，会主动校准模糊或失真的描述。", 120)
         if scope == "relationship":
             if re.search(r"(暗房|安全|边界|门口|不自动读取|私有)", joined, re.IGNORECASE):
@@ -1702,7 +1702,7 @@ class DailyPortraitMaintainer:
             tags & {"project_event", "work_event", "task_event"}
             or domains & {"记忆系统", "代码", "工作", "项目", "开发", "ai", "memory"}
             or re.search(
-                r"(小雨|她).{0,18}(正在|最近在|继续|准备|推进|调整|修改|修|部署|测试|写|搭|研究|排查|调试|做|关注|确认|在意)",
+                r"(小雨|Anya|她).{0,18}(正在|最近在|继续|准备|推进|调整|修改|修|部署|测试|写|搭|研究|排查|调试|做|关注|确认|在意)",
                 text,
             )
         ):
@@ -1764,7 +1764,7 @@ class DailyPortraitMaintainer:
         )
         activity_like = bool(
             re.search(
-                r"(小雨|她|我).{0,12}(最近在|这几天在|这两天在|正在|继续|开始|准备|推进|调整|修改|修|部署|测试|写|搭|研究|排查|调试|做)",
+                r"(小雨|Anya|她|我).{0,12}(最近在|这几天在|这两天在|正在|继续|开始|准备|推进|调整|修改|修|部署|测试|写|搭|研究|排查|调试|做)",
                 text,
             )
             or re.search(r"(最近在|这几天在|这两天在|正在).{0,16}(推进|调整|修改|修|部署|测试|写|搭|研究|排查|调试|做)", text)

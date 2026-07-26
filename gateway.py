@@ -150,8 +150,8 @@ SOURCE_RECORD_FRAGMENT_TOPIC_STOPWORDS = QUERY_PLANNER_GENERIC_TERMS | {
     "写着",
     "提出",
     "答应",
-    "haven",
-    "小雨",
+    "dorian",
+    "Anya",
     "哥哥",
     "宝宝",
     "老婆",
@@ -3089,8 +3089,8 @@ class GatewayService:
             "为什么",
             "你",
             "我",
-            "小雨",
-            "haven",
+            "Anya",
+            "dorian",
             "吗",
             "呢",
             "了",
@@ -4631,7 +4631,7 @@ class GatewayService:
         if self._text_has_any(text, memory_terms):
             return "memory_lookup"
         if self._text_has_any(text, intimate_terms) or (
-            tenderness >= 0.78 and longing >= 0.45 and self._text_has_any(text, ("你", "我们", "haven", "小雨"))
+            tenderness >= 0.78 and longing >= 0.45 and self._text_has_any(text, ("你", "我们", "dorian", "Anya"))
         ):
             return "intimate"
         if self._text_has_any(text, playful_terms):
@@ -5431,7 +5431,7 @@ class GatewayService:
         text = str(query_text or "")
         stop_terms = {
             "刚刚", "刚才", "刚说", "刚聊", "刚提", "上一句", "上句话",
-            "我们", "我们的", "你", "我", "小雨", "哥哥", "记得", "还记得",
+            "我们", "我们的", "你", "我", "Anya", "哥哥", "记得", "还记得",
             "记不记得", "是什么", "什么", "那个", "这个", "一下", "吗", "呀",
             "呢", "了", "的",
         }

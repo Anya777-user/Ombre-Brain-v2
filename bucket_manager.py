@@ -466,7 +466,7 @@ class BucketManager:
         bucket_id: str,
         content: str,
         *,
-        author: str = "Haven",
+        author: str = "Dorian",
         kind: str = "comment",
         valence: float | None = None,
         arousal: float | None = None,
@@ -497,7 +497,7 @@ class BucketManager:
         entry = {
             "id": generate_bucket_id(),
             "created": created_at,
-            "author": str(author or "Haven"),
+            "author": str(author or "Dorian"),
             "kind": str(kind or "comment"),
             "content": str(content).strip(),
         }
