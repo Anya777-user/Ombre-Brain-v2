@@ -1376,13 +1376,13 @@ def _handoff_persona_event_phrase(event: dict) -> str:
     user_excerpt = _handoff_clean_excerpt(event.get("user_excerpt"))
     assistant_excerpt = _handoff_clean_excerpt(event.get("assistant_excerpt"))
     identity = _identity()
-    user_display_name = identity.get(“user_display_name”) or identity.get(“user_name”) or “Anya”
-    ai_name = identity.get(“ai_name”) or “Dorian”
+    user_display_name = identity.get("user_display_name") or identity.get("user_name") or "Anya"
+    ai_name = identity.get("ai_name") or "Dorian"
     parts = []
     if user_excerpt:
-        parts.append(f”{user_display_name}说”{user_excerpt}””)
+        parts.append(f"{user_display_name}说“{user_excerpt}”")
     if assistant_excerpt:
-        parts.append(f”{ai_name}回”{assistant_excerpt}””)
+        parts.append(f"{ai_name}回“{assistant_excerpt}”")
     if not parts:
         return ""
     return _clip_text("；".join(parts), 150)
