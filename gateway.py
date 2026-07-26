@@ -540,6 +540,7 @@ class GatewayService:
         )
         self.upstream_key_cooldowns: dict[tuple[str, str], float] = {}
         self.pending_tool_reasoning: dict[str, dict[tuple[str, ...], dict[str, Any]]] = {}
+        self.pending_turn_injection: dict[str, dict] = {}
 
         self.http_client = http_client or httpx.AsyncClient(timeout=60.0)
 
@@ -1204,6 +1205,7 @@ class GatewayService:
                 assistant_message,
                 recalled_ids or [],
             )
+            self._cleanup_turn_injection_if_final(assistant_message, session_id)
 
         return self._proxy_response(upstream_response)
 
@@ -1297,6 +1299,7 @@ class GatewayService:
                 assistant_message,
                 recalled_ids or [],
             )
+            self._cleanup_turn_injection_if_final(assistant_message, session_id)
             return self._openai_response_to_anthropic(upstream_response, forward_payload["model"])
 
         return self._proxy_anthropic_error_response(upstream_response)
@@ -2035,7 +2038,30 @@ class GatewayService:
         injected_ids: list[str] | None = None
         query_planner_debug: dict[str, Any] = self._query_planner_debug_base(current_user_query)
 
-        if is_new_user_turn:
+        # --- Tool continuation cache: reuse stable/dynamic context ---
+        tool_continuation_cache_hit = False
+        if is_new_user_turn and self._messages_are_tool_continuation(messages):
+            cached = self.pending_turn_injection.get(session_id)
+            if cached is not None:
+                elapsed = time.time() - cached.get("created_at", 0)
+                if elapsed < 600:
+                    stable_context = cached.get("stable_context", "")
+                    dynamic_context = cached.get("dynamic_context", "")
+                    tool_continuation_cache_hit = True
+                    logger.info(
+                        "Gateway tool continuation cache hit | session=%s elapsed=%.1fs",
+                        session_id,
+                        elapsed,
+                    )
+                else:
+                    self.pending_turn_injection.pop(session_id, None)
+                    logger.info(
+                        "Gateway tool continuation cache expired | session=%s elapsed=%.1fs",
+                        session_id,
+                        elapsed,
+                    )
+
+        if is_new_user_turn and not tool_continuation_cache_hit:
             skip_for_targeted_detail = self._query_should_skip_broad_for_targeted_memory_detail(
                 current_user_query,
                 session_id,
@@ -2293,24 +2319,33 @@ class GatewayService:
                 session_id,
             )
 
-        stable_context, dynamic_context = self._build_injected_context_messages(
-            persona_block=persona_block,
-            core_memory=core_memory,
-            portrait_memory=portrait_memory,
-            just_now_context=just_now_context,
-            date_recall=date_recall,
-            recent_context=recent_context,
-            recalled_memory=recalled_memory,
-            date_persona_trace=date_persona_trace,
-            relationship_weather=relationship_weather,
-            favorite_memory=favorite_memory,
-            related_memory=related_memory,
-            targeted_memory_detail=targeted_memory_detail,
-            dream_context=dream_context,
-            memory_detail_recall_instruction=memory_detail_recall_instruction,
-            handoff_tool_hint=handoff_tool_hint,
-            context_mode=context_mode,
-        )
+        if not tool_continuation_cache_hit:
+            stable_context, dynamic_context = self._build_injected_context_messages(
+                persona_block=persona_block,
+                core_memory=core_memory,
+                portrait_memory=portrait_memory,
+                just_now_context=just_now_context,
+                date_recall=date_recall,
+                recent_context=recent_context,
+                recalled_memory=recalled_memory,
+                date_persona_trace=date_persona_trace,
+                relationship_weather=relationship_weather,
+                favorite_memory=favorite_memory,
+                related_memory=related_memory,
+                targeted_memory_detail=targeted_memory_detail,
+                dream_context=dream_context,
+                memory_detail_recall_instruction=memory_detail_recall_instruction,
+                handoff_tool_hint=handoff_tool_hint,
+                context_mode=context_mode,
+            )
+
+        # --- Store turn injection for potential tool continuation ---
+        if is_new_user_turn and not tool_continuation_cache_hit:
+            self.pending_turn_injection[session_id] = {
+                "stable_context": stable_context,
+                "dynamic_context": dynamic_context,
+                "created_at": time.time(),
+            }
 
         forward_payload = deepcopy(payload)
         forward_payload["model"] = model
@@ -2368,6 +2403,18 @@ class GatewayService:
         retention = str(upstream.get("prompt_cache_retention") or "").strip()
         if retention:
             payload.setdefault("prompt_cache_retention", retention)
+
+    def _cleanup_turn_injection_if_final(
+        self,
+        assistant_message: dict[str, Any] | None,
+        session_id: str,
+    ) -> None:
+        """如果 assistant 回复不含 tool_calls（最终答案），清除 turn injection 缓存。"""
+        if not assistant_message or not isinstance(assistant_message, dict):
+            return
+        tool_calls = assistant_message.get("tool_calls")
+        if not tool_calls or not isinstance(tool_calls, list) or len(tool_calls) == 0:
+            self.pending_turn_injection.pop(session_id, None)
 
     def _client_label_from_request(self, request: Request, route: str) -> str:
         explicit = (
@@ -3592,6 +3639,7 @@ class GatewayService:
             assistant_message,
             recalled_ids or [],
         )
+        self._cleanup_turn_injection_if_final(assistant_message, session_id)
 
     def _schedule_persona_post_reply_update(
         self,
@@ -4357,6 +4405,27 @@ class GatewayService:
                 return True
             if "Handoff Context" in text and "Use this compact private block" in text:
                 return True
+        return False
+
+    @staticmethod
+    def _messages_are_tool_continuation(messages: list[dict[str, Any]]) -> bool:
+        if not messages:
+            return False
+        last = messages[-1]
+        if not isinstance(last, dict):
+            return False
+        role = last.get("role")
+        # OpenAI 格式: 最后一条是 tool 角色
+        if role == "tool":
+            return True
+        # Anthropic 格式: user 消息但 content 是含 tool_result block 的 list
+        if role == "user":
+            content = last.get("content")
+            if isinstance(content, list):
+                return any(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in content
+                )
         return False
 
     @staticmethod
