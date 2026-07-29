@@ -9159,15 +9159,13 @@ async def api_reflection_run(request):
 
 @mcp.custom_route("/dashboard", methods=["GET"])
 async def dashboard(request):
-    """Serve the dashboard HTML page."""
-    from starlette.responses import HTMLResponse
+    """Serve the dashboard HTML page (streamed to avoid loading 63KB into memory)."""
+    from starlette.responses import FileResponse, HTMLResponse
     import os
     dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
-    try:
-        with open(dashboard_path, "r", encoding="utf-8") as f:
-            return HTMLResponse(f.read())
-    except FileNotFoundError:
+    if not os.path.exists(dashboard_path):
         return HTMLResponse("<h1>dashboard.html not found</h1>", status_code=404)
+    return FileResponse(dashboard_path, media_type="text/html")
 
 
 @mcp.custom_route("/api/persona", methods=["GET"])
