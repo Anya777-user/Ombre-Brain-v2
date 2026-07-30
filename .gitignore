@@ -20,4 +20,5 @@ scarp_paper
 backup_*/
 *.db
 import_state.json
+api_loop.config.json
 .codex
