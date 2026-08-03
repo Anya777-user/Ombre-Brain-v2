@@ -1411,11 +1411,17 @@ class GatewayService:
         if request.url.query:
             upstream_url += f"?{request.url.query}"
 
-        forward_headers: dict[str, str] = {}
-        for header_name in ("Cookie", "Content-Type"):
-            value = request.headers.get(header_name)
-            if value:
-                forward_headers[header_name] = value
+        # Always forward an explicit Cookie header — empty when the client sent
+        # none. httpx.AsyncClient keeps a persistent cookie jar and, when the
+        # request carries no Cookie header, silently injects jar cookies. A
+        # dashboard login's `ombre_session` Set-Cookie would otherwise be
+        # absorbed into this shared client and authenticate every anonymous
+        # /auth|/api proxy request. An explicit header (even empty) suppresses
+        # the jar, so dashboard auth is never short-circuited here.
+        forward_headers: dict[str, str] = {"Cookie": request.headers.get("Cookie", "")}
+        content_type = request.headers.get("Content-Type")
+        if content_type:
+            forward_headers["Content-Type"] = content_type
 
         try:
             if request.method == "GET":
@@ -1451,10 +1457,23 @@ class GatewayService:
                 status_code=502,
             )
 
+        # Do not let server.py's Set-Cookie (the dashboard session) persist in
+        # the shared client jar across requests — otherwise a single dashboard
+        # login would seed a global cookie that proxies every /api request.
+        self.http_client.cookies.clear()
+
+        # Forward the upstream Set-Cookie (dashboard session) to the client so
+        # the browser owns its cookie; this gateway does not retain it.
+        resp_headers: dict[str, str] = {}
+        set_cookie = upstream_response.headers.get("set-cookie")
+        if set_cookie:
+            resp_headers["Set-Cookie"] = set_cookie
+
         return Response(
             content=upstream_response.text,
             status_code=upstream_response.status_code,
             media_type=upstream_response.headers.get("content-type", "application/json"),
+            headers=resp_headers,
         )
 
     async def handle_api_proxy(self, request: Request) -> Response:
@@ -1469,11 +1488,17 @@ class GatewayService:
         if request.url.query:
             upstream_url += f"?{request.url.query}"
 
-        forward_headers: dict[str, str] = {}
-        for header_name in ("Cookie", "Content-Type"):
-            value = request.headers.get(header_name)
-            if value:
-                forward_headers[header_name] = value
+        # Always forward an explicit Cookie header — empty when the client sent
+        # none. httpx.AsyncClient keeps a persistent cookie jar and, when the
+        # request carries no Cookie header, silently injects jar cookies. A
+        # dashboard login's `ombre_session` Set-Cookie would otherwise be
+        # absorbed into this shared client and authenticate every anonymous
+        # /auth|/api proxy request. An explicit header (even empty) suppresses
+        # the jar, so dashboard auth is never short-circuited here.
+        forward_headers: dict[str, str] = {"Cookie": request.headers.get("Cookie", "")}
+        content_type = request.headers.get("Content-Type")
+        if content_type:
+            forward_headers["Content-Type"] = content_type
 
         try:
             if request.method == "GET":
@@ -1509,10 +1534,23 @@ class GatewayService:
                 status_code=502,
             )
 
+        # Do not let server.py's Set-Cookie (the dashboard session) persist in
+        # the shared client jar across requests — otherwise a single dashboard
+        # login would seed a global cookie that proxies every /api request.
+        self.http_client.cookies.clear()
+
+        # Forward the upstream Set-Cookie (dashboard session) to the client so
+        # the browser owns its cookie; this gateway does not retain it.
+        resp_headers: dict[str, str] = {}
+        set_cookie = upstream_response.headers.get("set-cookie")
+        if set_cookie:
+            resp_headers["Set-Cookie"] = set_cookie
+
         return Response(
             content=upstream_response.text,
             status_code=upstream_response.status_code,
             media_type=upstream_response.headers.get("content-type", "application/json"),
+            headers=resp_headers,
         )
 
     async def handle_proactive_poll(self, request: Request) -> JSONResponse:
