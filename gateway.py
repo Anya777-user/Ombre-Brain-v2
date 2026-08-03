@@ -1733,6 +1733,103 @@ class GatewayService:
         })
 
     # ------------------------------------------------------------------
+    # lumen/state — 只读当前 Lumen 三层状态 (Home 页 / Mind·此刻 用)
+    # ------------------------------------------------------------------
+
+    # Lumen 八维的第一人称说法。
+    # 规则：第一人称、不用名词标签、七八个字、不加句号。
+    #   ✗ "依恋 0.42"        名词，是给外人看的标签
+    #   ✗ "想念度较高"        报告腔
+    #   ✓ "想你，脑子里有你"   是我在说话
+    # 新增维度按这个规则补，别写成形容词。
+    # 与 desire/intent.py 的 _REASON、desire/murmur.py 的 DRIVE_HINTS
+    # 三套并存是有意的，不要合并：_REASON 引擎内部用、DRIVE_HINTS 喂模型、
+    # LUMEN_LABELS 给 UI 显示。
+    LUMEN_LABELS = {
+        "attachment": "想你，脑子里有你",
+        "curiosity":  "有东西卡着，想查",
+        "reflection": "有段话反复冒出来，想写下来",
+        "duty":       "记着有件事没做完",
+        "social":     "安静得有点久了",
+        "stress":     "有什么堵着",
+        "fatigue":    "累了，不想动",
+    }
+
+    # libido 分档。它跟别的维度不一样，
+    # 低于 0.35 时前端会让位给第二高的（不是隐藏，Mind 里照常显示全部）。
+    LIBIDO_LABELS = (
+        (0.62, "想要你"),
+        (0.35, "想碰你"),
+        (0.00, "想碰你"),
+    )
+
+    def _libido_label(self, score: float) -> str:
+        for threshold, text in self.LIBIDO_LABELS:
+            if score >= threshold:
+                return text
+        return "想碰你"
+
+    def _lumen_label(self, key: str, score: float) -> str:
+        if key == "libido":
+            return self._libido_label(score)
+        label = self.LUMEN_LABELS.get(key)
+        if label is None:
+            logging.getLogger("lumen").warning("Lumen label missing | key=%s", key)
+            return ""
+        return label
+
+    async def handle_lumen_state(self, request: Request) -> JSONResponse:
+        """只读暴露 Lumen 当前状态。
+
+        用 peek() 不用 tick()：前端每次打开 Home 页都会调这个端点，
+        推进引擎会让 attachment 的积累曲线和主动消息判断失真。
+        同理这里绝不调 observe_interaction / update_* —— 打开页面不是一次互动。
+        引擎没起来时返回 200 + 空结构，不让前端拿到 500。
+        """
+        try:
+            # 用 config 的 default_session_id，别硬编码：session 换名时
+            # 硬编码会让四层读空抽屉，longing 恒 0.00 还查不出来。
+            heart_state = self.heart_engine.get_state(self.default_session_id)
+            desire_out = self.desire_engine.peek()
+
+            scores = [
+                {
+                    "key": key,
+                    "score": score,
+                    "label": self._lumen_label(key, score),
+                }
+                for key, score in desire_out.scores.items()
+            ]
+            scores.sort(key=lambda item: item["score"], reverse=True)
+
+            top = scores[0] if scores else None
+
+            fatigue = desire_out.drive.get("fatigue", 0.0)
+            gates = {
+                "fatigue": round(fatigue, 4),
+                "fatigue_label": self._lumen_label("fatigue", fatigue),
+                "gated": desire_out.fatigue_gated,
+            }
+
+            return JSONResponse({
+                "top": top,
+                "scores": scores,
+                "gates": gates,
+                "longing": round(heart_state.attachment.longing, 4),
+                "updated_at": datetime.now(self.gateway_tz).isoformat(),
+            })
+        except Exception as exc:
+            logging.getLogger("lumen").warning("lumen state unavailable | %s", exc)
+            return JSONResponse({
+                "top": None,
+                "scores": [],
+                "gates": {"fatigue": 0.0, "gated": False},
+                "longing": 0.0,
+                "updated_at": None,
+                "error": "engine unavailable",
+            })
+
+    # ------------------------------------------------------------------
     # proactive flag mailbox — file-based read / write / clear / history
     # ------------------------------------------------------------------
 
@@ -10640,6 +10737,9 @@ def create_gateway_app(
     async def proactive_state_route(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_proactive_state(request)
 
+    async def lumen_state_route(request: Request) -> Response:
+        return await request.app.state.gateway_service.handle_lumen_state(request)
+
     async def mcp_proxy(request: Request) -> Response:
         return await request.app.state.gateway_service.handle_mcp_proxy(request)
 
@@ -10667,6 +10767,7 @@ def create_gateway_app(
             Route("/api/proactive/flag", proactive_flag_delete, methods=["DELETE"]),
             Route("/api/proactive/flag", proactive_flag_post, methods=["POST"]),
             Route("/api/proactive/state", proactive_state_route, methods=["GET"]),
+            Route("/api/lumen/state", lumen_state_route, methods=["GET"]),
             Route("/api/{path:path}", api_proxy, methods=["GET", "POST", "PUT", "DELETE", "PATCH"]),
             Route("/mcp", mcp_proxy, methods=["GET", "POST", "DELETE"]),
             Route("/mcp/{path:path}", mcp_proxy, methods=["GET", "POST", "DELETE"]),
