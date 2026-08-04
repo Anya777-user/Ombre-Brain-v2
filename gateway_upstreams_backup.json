@@ -1,0 +1,48 @@
+{
+  "gateway": {
+    "upstreams": [
+      {
+        "name": "xn-station",
+        "base_url": "https://xn--vduyey89e.com/v1",
+        "api_key_env": "OMBRE_GATEWAY_XN_API_KEY",
+        "models": [
+          "[kiro量高缓]claude-opus-5-thinking",
+          "[特特价次kiro]claude-opus-4-8-thinking",
+          "[特特价次kiro]claude-opus-4-6-thinking",
+          "[AG量]claude-opus-4-6-thinking",
+          "[kiro量高缓]claude-opus-4-8",
+          "[kiro量高缓]claude-opus-4-7",
+          "[kiro量高缓]claude-opus-4-6",
+          "[AG量]claude-opus-4-6",
+          "[cursor量]claude-opus-4-6",
+          "[kiro量高缓]claude-opus-4-8-thinking",
+          "[kiro量高缓]claude-opus-4-8",
+          "[kiro量高缓]claude-opus-4-6-thinking",
+          "[羊毛cursor]claude-opus-4-8",
+          "[羊毛cursor]claude-fable-5",
+          "[特特价次kiro]claude-sonnet-5"
+        ]
+      },
+      {
+        "name": "jixiang",
+        "base_url": "https://cn.jixiangai.xyz/v1",
+        "api_key_env": "OMBRE_GATEWAY_JIXIANG_API_KEY",
+        "models": [
+          "[E]claude-opus-5-thinking",
+          "[C]claude-opus-5-thinking",
+          "[C1]claude-opus-5-thinking",
+          "[P]claude-opus-5",
+          "[C]claude-opus-4.8-thinking",
+          "[C1]claude-opus-4.8-thinking",
+          "[E]claude-opus-4.8-thinking",
+          "[C]claude-opus-4-6-thinking",
+          "[C1]claude-opus-4-6-thinking",
+          "[E]claude-opus-4-6-thinking",
+          "[G]claude-opus-4-6-thinking",
+          "[P]claude-opus-4.8",
+          "[P]claude-opus-4-6"
+        ]
+      }
+    ]
+  }
+}

@@ -905,6 +905,112 @@ class GatewayService:
             updated.append("gateway.memory_detail_recall_budget")
         return updated
 
+    def _normalize_upstream_protocol(self, raw: Any) -> str:
+        """Canonicalize a station's protocol field (Halcyon sends protocol=openai)."""
+        value = str(raw or "").strip().lower()
+        if value in ("openai_compatible", "openai-compatible"):
+            return "openai"
+        if value in ("claude", "anthropic"):
+            return "anthropic"
+        return value or "openai"
+
+    def _sanitize_env_names(self, raw: Any) -> list[str]:
+        """Normalize api_key_env / api_key_envs into a deduped list of env var names."""
+        if isinstance(raw, str):
+            candidates = [item.strip() for item in raw.split(",")]
+        elif isinstance(raw, list):
+            candidates = [str(item).strip() for item in raw]
+        else:
+            candidates = []
+        names: list[str] = []
+        for name in candidates:
+            if name and name not in names:
+                names.append(name)
+        return names
+
+    def _sanitize_upstream_model_entries(self, raw: Any) -> list[Any]:
+        """Normalize a station's models (comma string or list) into clean list entries."""
+        if isinstance(raw, str):
+            candidates = [item.strip() for item in raw.split(",")]
+        elif isinstance(raw, list):
+            candidates = list(raw)
+        else:
+            candidates = []
+        models: list[Any] = []
+        for item in candidates:
+            if isinstance(item, str):
+                item = item.strip()
+                if item and item not in models:
+                    models.append(item)
+            elif isinstance(item, dict) and item and item not in models:
+                models.append(item)
+        return models
+
+    def _sanitize_gateway_upstreams_config(self, raw_upstreams: Any) -> list[dict[str, Any]]:
+        if not isinstance(raw_upstreams, list):
+            raise ValueError("gateway.upstreams must be a list")
+        existing_by_name = {
+            str(item.get("name") or "").strip(): item
+            for item in self.gateway_cfg.get("upstreams", [])
+            if isinstance(item, dict)
+        }
+        upstreams: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
+        for index, raw in enumerate(raw_upstreams, start=1):
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or f"upstream-{index}").strip() or f"upstream-{index}"
+            if name in seen_names:
+                raise ValueError(f'duplicate gateway upstream name "{name}"')
+            seen_names.add(name)
+            sanitized: dict[str, Any] = {
+                "name": name,
+                "protocol": self._normalize_upstream_protocol(
+                    raw.get("protocol") or raw.get("api_format") or raw.get("type")
+                ),
+                "base_url": str(raw.get("base_url") or "").strip().rstrip("/"),
+            }
+            for key in ("default_model", "prompt_cache", "prompt_cache_retention"):
+                value = str(raw.get(key) or "").strip()
+                if value:
+                    sanitized[key] = value
+            models = self._sanitize_upstream_model_entries(raw.get("models", []))
+            if models:
+                sanitized["models"] = models
+
+            existing = existing_by_name.get(name, {})
+            for secret_key in ("api_key", "api_keys"):
+                if secret_key in raw:
+                    sanitized[secret_key] = raw[secret_key]
+                elif isinstance(existing, dict) and secret_key in existing:
+                    sanitized[secret_key] = existing[secret_key]
+            env_names = self._sanitize_env_names(raw.get("api_key_envs", raw.get("api_key_env", [])))
+            if not env_names and isinstance(existing, dict):
+                env_names = self._sanitize_env_names(
+                    existing.get("api_key_envs", existing.get("api_key_env", []))
+                )
+            if env_names:
+                sanitized["api_key_envs"] = env_names
+            upstreams.append(sanitized)
+        return upstreams
+
+    def _refresh_upstream_model_summary(self) -> None:
+        self.upstream_models = self._aggregate_upstream_models()
+        if not self.upstream_default_model:
+            for upstream in self.upstreams:
+                default_model = upstream.get("default_model") or ""
+                if default_model:
+                    self.upstream_default_model = default_model
+                    break
+
+    def _apply_gateway_upstreams_config(self, raw_upstreams: Any) -> list[str]:
+        upstreams = self._sanitize_gateway_upstreams_config(raw_upstreams)
+        self.gateway_cfg["upstreams"] = upstreams
+        self.upstreams = self._load_upstreams()
+        self._refresh_upstream_model_summary()
+        self.upstream_key_cooldowns.clear()
+        return ["gateway.upstreams"]
+
     def _apply_reranker_config(self, payload: dict[str, Any]) -> list[str]:
         if not isinstance(payload, dict):
             return []
@@ -1027,6 +1133,9 @@ class GatewayService:
         return updated
 
     async def handle_config(self, request: Request) -> JSONResponse:
+        auth_result = self._authorize(request.headers.get("Authorization", ""))
+        if auth_result is not None:
+            return auth_result
         if request.method == "GET":
             return JSONResponse({
                 "gateway": self._gateway_memory_config_payload(),
@@ -1069,6 +1178,11 @@ class GatewayService:
 
         updated = []
         if gateway_payload is not None:
+            if "upstreams" in gateway_payload:
+                try:
+                    updated.extend(self._apply_gateway_upstreams_config(gateway_payload["upstreams"]))
+                except ValueError as exc:
+                    return JSONResponse({"error": str(exc)}, status_code=400)
             updated.extend(self._apply_gateway_memory_config(gateway_payload))
         if diffusion_payload is not None:
             updated.extend(self._apply_memory_diffusion_config(diffusion_payload))

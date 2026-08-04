@@ -8026,3 +8026,249 @@ def test_recent_round_skip_fallback_keeps_cooldown(monkeypatch, test_config, buc
     assert recalled_ids
     assert any(bucket_id in {cat_a, cat_b} for bucket_id in recalled_ids)
     assert "Recalled Memory" in injected
+
+
+# ---------------------------------------------------------------
+# gateway.upstreams hot reload + /api/config auth
+# ---------------------------------------------------------------
+
+
+def _models_whitelist(client, token="gateway-secret"):
+    response = client.get("/v1/models", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    return [model["id"] for model in response.json()["data"]]
+
+
+def test_gateway_config_hot_reloads_upstreams(monkeypatch, test_config, bucket_mgr):
+    """POST /api/config gateway.upstreams swaps the model whitelist and reloads stations."""
+    monkeypatch.setenv("OMBRE_GATEWAY_A_KEY", "a-secret")
+    cfg = _gateway_config(
+        test_config,
+        upstreams=[
+            {
+                "name": "station-a",
+                "base_url": "https://a.example/v1",
+                "api_key_env": "OMBRE_GATEWAY_A_KEY",
+                "models": ["model-a1", "model-a2"],
+            },
+        ],
+    )
+    app, service, _, _ = _build_service(monkeypatch, cfg, bucket_mgr)
+
+    with TestClient(app) as client:
+        assert _models_whitelist(client) == ["model-a1", "model-a2"]
+
+        response = client.post(
+            "/api/config",
+            headers={"Authorization": "Bearer gateway-secret"},
+            json={
+                "gateway": {
+                    "upstreams": [
+                        {
+                            "name": "station-b",
+                            "protocol": "openai",
+                            "base_url": "https://b.example/v1",
+                            "api_key": "b-secret",
+                            "models": ["model-b1", "model-b2", "model-b3"],
+                        },
+                    ]
+                }
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["updated"] == ["gateway.upstreams"]
+    assert [u["name"] for u in service.upstreams] == ["station-b"]
+    assert [entry["value"] for entry in service.upstreams[0]["api_keys"]] == ["b-secret"]
+
+
+def test_gateway_config_upstreams_inherits_key_when_omitted(monkeypatch, test_config, bucket_mgr):
+    """POSTing a station update without api_key must keep the existing key."""
+    monkeypatch.setenv("OMBRE_GATEWAY_A_KEY", "a-secret")
+    cfg = _gateway_config(
+        test_config,
+        upstreams=[
+            {
+                "name": "station-a",
+                "base_url": "https://a.example/v1",
+                "api_key_env": "OMBRE_GATEWAY_A_KEY",
+                "models": ["model-a1"],
+            },
+        ],
+    )
+    app, service, _, _ = _build_service(monkeypatch, cfg, bucket_mgr)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/config",
+            headers={"Authorization": "Bearer gateway-secret"},
+            json={
+                "gateway": {
+                    "upstreams": [
+                        {
+                            "name": "station-a",
+                            "base_url": "https://a.example/v1",
+                            "models": ["model-a1", "model-a2"],
+                        },
+                    ]
+                }
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["updated"] == ["gateway.upstreams"]
+    station_a = next(u for u in service.upstreams if u["name"] == "station-a")
+    assert [entry["value"] for entry in station_a["api_keys"]] == ["a-secret"]
+    assert station_a["models"] == ["model-a1", "model-a2"]
+
+
+def test_gateway_config_upstreams_duplicate_name_returns_400(monkeypatch, test_config, bucket_mgr):
+    app, _, _, _ = _build_service(monkeypatch, _gateway_config(test_config), bucket_mgr)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/config",
+            headers={"Authorization": "Bearer gateway-secret"},
+            json={
+                "gateway": {
+                    "upstreams": [
+                        {"name": "dup", "base_url": "https://x.example/v1"},
+                        {"name": "dup", "base_url": "https://y.example/v1"},
+                    ]
+                }
+            },
+        )
+    assert response.status_code == 400
+    assert "duplicate" in response.json()["error"]
+
+
+def test_gateway_config_upstreams_rejects_non_list(monkeypatch, test_config, bucket_mgr):
+    app, _, _, _ = _build_service(monkeypatch, _gateway_config(test_config), bucket_mgr)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/config",
+            headers={"Authorization": "Bearer gateway-secret"},
+            json={"gateway": {"upstreams": {"name": "not-a-list"}}},
+        )
+    assert response.status_code == 400
+    assert "must be a list" in response.json()["error"]
+
+
+def test_gateway_config_get_requires_auth(monkeypatch, test_config, bucket_mgr):
+    """Bare GET /api/config must 401; Bearer must 200."""
+    app, _, _, _ = _build_service(monkeypatch, _gateway_config(test_config), bucket_mgr)
+    with TestClient(app) as client:
+        bare_get = client.get("/api/config")
+        authed_get = client.get("/api/config", headers={"Authorization": "Bearer gateway-secret"})
+        bare_post = client.post("/api/config", json={"gateway": {"cooldown_hours": 1}})
+    assert bare_get.status_code == 401
+    assert authed_get.status_code == 200
+    assert bare_post.status_code == 401
+
+
+def test_gateway_upstreams_production_shape_hot_reload_roundtrip(monkeypatch, test_config, bucket_mgr):
+    """Mirrors the production config shape: two api_key_env stations, 27 unique models.
+
+    Exercises §七 steps 3-8 against the real HTTP layer:
+      add station -> whitelist grows, keys kept; duplicate -> 400;
+      update without api_key -> key inherited and chat still forwards;
+      bare GET /api/config -> 401, Bearer -> 200; restore -> whitelist back to 27.
+    """
+    monkeypatch.setenv("OMBRE_GATEWAY_XN_API_KEY", "xn-secret")
+    monkeypatch.setenv("OMBRE_GATEWAY_JIXIANG_API_KEY", "jixiang-secret")
+
+    xn_models = [f"xn-{i:02d}" for i in range(1, 15)]  # xn-01..xn-14 = 14 distinct
+    xn_models.append("xn-14")  # duplicate entry, like production -> 15 entries / 14 unique
+    jx_models = [f"jx-{i:02d}" for i in range(1, 14)]  # 13 unique
+    cfg = _gateway_config(
+        test_config,
+        upstream_default_model="",
+        upstreams=[
+            {"name": "xn-station", "base_url": "https://xn.example/v1",
+             "api_key_env": "OMBRE_GATEWAY_XN_API_KEY", "models": xn_models},
+            {"name": "jixiang", "base_url": "https://jixiang.example/v1",
+             "api_key_env": "OMBRE_GATEWAY_JIXIANG_API_KEY", "models": jx_models},
+        ],
+    )
+    app, service, _, captured = _build_service(monkeypatch, cfg, bucket_mgr)
+
+    with TestClient(app) as client:
+        # ---- step 3: baseline 27 unique models ----
+        baseline = _models_whitelist(client)
+        assert len(baseline) == 27
+
+        # POST upstreams adding a fake "cc" station (full-list replace, like Halcyon)
+        response = client.post(
+            "/api/config",
+            headers={"Authorization": "Bearer gateway-secret"},
+            json={
+                "gateway": {
+                    "upstreams": [
+                        {"name": "xn-station", "base_url": "https://xn.example/v1",
+                         "api_key_env": "OMBRE_GATEWAY_XN_API_KEY", "models": xn_models},
+                        {"name": "jixiang", "base_url": "https://jixiang.example/v1",
+                         "api_key_env": "OMBRE_GATEWAY_JIXIANG_API_KEY", "models": jx_models},
+                        {"name": "cc", "protocol": "openai", "base_url": "https://cc.example/v1",
+                         "api_key": "cc-secret", "models": ["cc-opus-5", "cc-sonnet-5"]},
+                    ]
+                }
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["updated"] == ["gateway.upstreams"]
+        assert len(_models_whitelist(client)) == 29
+        assert [u["name"] for u in service.upstreams] == ["xn-station", "jixiang", "cc"]
+        xn = next(u for u in service.upstreams if u["name"] == "xn-station")
+        assert [entry["value"] for entry in xn["api_keys"]] == ["xn-secret"]
+
+        # ---- step 4: duplicate name -> 400 ----
+        dup = client.post(
+            "/api/config",
+            headers={"Authorization": "Bearer gateway-secret"},
+            json={"gateway": {"upstreams": [
+                {"name": "dup", "base_url": "https://x/v1"},
+                {"name": "dup", "base_url": "https://y/v1"},
+            ]}},
+        )
+        assert dup.status_code == 400
+        assert "duplicate" in dup.json()["error"]
+
+        # ---- step 5: update xn-station WITHOUT api_key -> key inherited; chat forwards ----
+        update = client.post(
+            "/api/config",
+            headers={"Authorization": "Bearer gateway-secret"},
+            json={"gateway": {"upstreams": [
+                {"name": "xn-station", "base_url": "https://xn.example/v1", "models": xn_models},
+                {"name": "jixiang", "base_url": "https://jixiang.example/v1", "models": jx_models},
+            ]}},
+        )
+        assert update.status_code == 200
+        xn_after = next(u for u in service.upstreams if u["name"] == "xn-station")
+        assert [entry["value"] for entry in xn_after["api_keys"]] == ["xn-secret"]
+
+        chat = client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer gateway-secret"},
+            json={"model": "xn-01", "messages": [{"role": "user", "content": "真实消息"}]},
+        )
+        assert chat.status_code == 200
+        assert captured[-1]["auth"] == "Bearer xn-secret"
+        assert captured[-1]["json"]["model"] == "xn-01"
+
+        # ---- steps 6/7: /api/config auth ----
+        assert client.get("/api/config").status_code == 401
+        assert client.get("/api/config", headers={"Authorization": "Bearer gateway-secret"}).status_code == 200
+
+        # ---- step 8: restore -> back to 27 ----
+        restore = client.post(
+            "/api/config",
+            headers={"Authorization": "Bearer gateway-secret"},
+            json={"gateway": {"upstreams": [
+                {"name": "xn-station", "base_url": "https://xn.example/v1",
+                 "api_key_env": "OMBRE_GATEWAY_XN_API_KEY", "models": xn_models},
+                {"name": "jixiang", "base_url": "https://jixiang.example/v1",
+                 "api_key_env": "OMBRE_GATEWAY_JIXIANG_API_KEY", "models": jx_models},
+            ]}},
+        )
+        assert restore.status_code == 200
+        assert len(_models_whitelist(client)) == 27
