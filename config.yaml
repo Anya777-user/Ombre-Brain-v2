@@ -335,6 +335,7 @@ persona:
   event_similarity_threshold: 0.82
   event_force_after_minutes: 30
   event_excerpt_chars: 220
+  min_clean_user_message_chars: 2
   initial_personality:
     openness: 0.56
     conscientiousness: 0.5

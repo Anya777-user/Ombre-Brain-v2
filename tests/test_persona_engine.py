@@ -336,7 +336,7 @@ async def test_persona_evaluator_receives_user_message_without_client_status(tes
 
 
 @pytest.mark.asyncio
-async def test_persona_pure_client_status_message_does_not_record_event(test_config):
+async def test_persona_pure_client_status_message_skips_flash_and_records_error(test_config):
     engine = PersonaStateEngine(_persona_config(test_config))
     engine.client = FakePersonaClient(_event_payload())
 
@@ -346,8 +346,55 @@ async def test_persona_pure_client_status_message_does_not_record_event(test_con
         "收到。",
     )
 
+    # 清洗后用户消息为空 → 不发 flash，记一条 error 说明「输入清洗后为空」
     assert engine.client.calls == []
-    assert _event_count(engine.db_path) == 0
+    conn = sqlite3.connect(engine.db_path)
+    row = conn.execute("SELECT error, inner_thought FROM persona_events").fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == "输入清洗后为空"
+    assert row[1] is None
+
+
+@pytest.mark.asyncio
+async def test_persona_cleaning_preserves_real_user_message_with_context_blocks(test_config):
+    engine = PersonaStateEngine(_persona_config(test_config))
+    engine.client = FakePersonaClient(_event_payload())
+
+    # 真实消息带【当前时间】/battery 等客户端注入块：清洗后必须保留用户实际说的话
+    await engine.update_from_exchange(
+        "session-clean-blocks",
+        "【当前时间】2026-05-25 12:30:00\n我亲亲你daddyQWQ\nbattery: 100%",
+        "乖。",
+    )
+
+    assert len(engine.client.calls) == 1
+    payload = json.loads(engine.client.calls[0]["messages"][1]["content"])
+    assert payload["latest_user_message"] == "我亲亲你daddyQWQ"
+    assert "当前时间" not in payload["latest_user_message"]
+    assert "battery" not in payload["latest_user_message"]
+
+
+@pytest.mark.asyncio
+async def test_persona_empty_flash_response_records_error_not_fake_stuck(test_config):
+    engine = PersonaStateEngine(_persona_config(test_config))
+    engine.client = FakePersonaClient("")  # flash 返回空内容
+
+    await engine.update_from_exchange(
+        "session-empty-flash",
+        "爱你daddy",
+        "我也爱你。",
+    )
+
+    # 空响应 → 记 error，inner_thought 不应该是代码里的假「卡住」文案
+    conn = sqlite3.connect(engine.db_path)
+    row = conn.execute("SELECT error, inner_thought, mood_label, confidence FROM persona_events").fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == "persona LLM returned malformed JSON"
+    assert row[1] is None
+    assert row[2] is None
+    assert row[3] is None
 
 
 def test_persona_session_mood_half_life_decay(test_config):

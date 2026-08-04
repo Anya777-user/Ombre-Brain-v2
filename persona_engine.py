@@ -114,6 +114,10 @@ class PersonaStateEngine:
             float(self.persona_cfg.get("event_force_after_minutes", 30)),
         )
         self.event_excerpt_chars = max(0, int(self.persona_cfg.get("event_excerpt_chars", 220)))
+        self.min_clean_user_message_chars = max(
+            0,
+            int(self.persona_cfg.get("min_clean_user_message_chars", 2)),
+        )
 
         self.default_personality = {
             "openness": 0.56,
@@ -324,11 +328,29 @@ class PersonaStateEngine:
 
         cleaned_user_message = self._clean_client_status_lines(user_message)
 
-        if not self.enabled or not cleaned_user_message.strip() or not assistant_response.strip():
+        if not self.enabled or not assistant_response.strip():
             return self._snapshot(global_state, session_state, self.fallback_guidance)
 
         exchange_hash = self._exchange_hash(session_id, cleaned_user_message, assistant_response)
         if self._exchange_processed(session_id, exchange_hash):
+            return self._snapshot(global_state, session_state, self.fallback_guidance)
+
+        # 防呆：清洗后 latest_user_message 为空或短于阈值 → 不发给 flash，
+        # 跳过本轮评估并记一条 error（宁可没有记录，也不要有假记录）。
+        if len(cleaned_user_message.strip()) < self.min_clean_user_message_chars:
+            self._mark_exchange_processed(session_id, exchange_hash)
+            if self.event_recording_enabled:
+                self._record_event(
+                    session_id=session_id,
+                    user_message=cleaned_user_message,
+                    assistant_response=assistant_response,
+                    evaluation={},
+                    raw_response="",
+                    error="输入清洗后为空",
+                    exchange_hash=exchange_hash,
+                    recalled_memory_ids=recalled_memory_ids or [],
+                    tool_summary=tool_summary,
+                )
             return self._snapshot(global_state, session_state, self.fallback_guidance)
 
         recalled_memory_ids = recalled_memory_ids or []
@@ -523,21 +545,10 @@ class PersonaStateEngine:
             raw = response.choices[0].message.content if response.choices else ""
             parsed = self._parse_json(raw or "")
             if parsed is None:
-                logger.warning("Persona evaluator returned malformed JSON — using neutral fallback. raw=%s", str(raw)[:300])
-                parsed = {
-                    "event_type": "neutral",
-                    "perceived_intent": "未识别",
-                    "surface_trigger": "模型输出解析失败",
-                    "inner_thought": "刚才好像有点卡住了",
-                    "affect_delta": {"valence": 0.0, "arousal": 0.0, "tenderness": 0.0, "possessiveness": 0.0, "longing": 0.0, "security": 0.0, "protective_drive": 0.0},
-                    "relationship_event": False,
-                    "relationship_delta": {"affinity": 0.0, "dominance": 0.0, "defensiveness": 0.0, "trust": 0.0},
-                    "personality_signal": False,
-                    "personality_delta": {"openness": 0.0, "conscientiousness": 0.0, "extraversion": 0.0, "agreeableness": 0.0, "neuroticism": 0.0},
-                    "mood_label": "warm_neutral",
-                    "residue": "",
-                    "confidence": 0.3,
-                }
+                # 宁可记一条 error，也不要有「刚才好像有点卡住了」这种假记录。
+                # flash 返回空内容或不可解析 JSON 时，走失败分支，让 error 可见。
+                logger.warning("Persona evaluator returned malformed JSON — recording error. raw=%s", str(raw)[:300])
+                return None, raw or "", "persona LLM returned malformed JSON"
             return self._normalize_evaluation(parsed), raw or "", None
         except Exception as exc:
             logger.warning("Persona evaluation failed: %s", exc)

@@ -466,6 +466,7 @@ persona:
   event_similarity_threshold: 0.82
   event_force_after_minutes: 30
   event_excerpt_chars: 220          # short evidence snippets for future date traces, not full transcripts
+  min_clean_user_message_chars: 2   # 清洗后 latest_user_message 短于该值 → 跳过评估并记 error「输入清洗后为空」
   initial_personality:
     openness: 0.56
     conscientiousness: 0.50
