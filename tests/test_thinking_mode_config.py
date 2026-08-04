@@ -95,6 +95,35 @@ async def test_dehydrator_direct_capsule_uses_separate_cache(test_config):
     assert client.calls[0]["messages"][0]["content"] != client.calls[1]["messages"][0]["content"]
 
 
+def _valid_persona_payload() -> str:
+    return json.dumps(
+        {
+            "event_type": "neutral",
+            "perceived_intent": "user says hi",
+            "affect_delta": {"valence": 0.01, "arousal": 0.0},
+            "relationship_event": False,
+            "relationship_delta": {
+                "affinity": 0.0,
+                "dominance": 0.0,
+                "defensiveness": 0.0,
+                "trust": 0.0,
+            },
+            "personality_signal": False,
+            "personality_delta": {
+                "openness": 0.0,
+                "conscientiousness": 0.0,
+                "extraversion": 0.0,
+                "agreeableness": 0.0,
+                "neuroticism": 0.0,
+            },
+            "mood_label": "warm_neutral",
+            "residue": "",
+            "confidence": 0.8,
+        },
+        ensure_ascii=False,
+    )
+
+
 @pytest.mark.asyncio
 async def test_persona_sends_enabled_thinking_mode_when_configured(test_config):
     cfg = deepcopy(test_config)
@@ -105,36 +134,30 @@ async def test_persona_sends_enabled_thinking_mode_when_configured(test_config):
         thinking_mode="enabled",
     )
     engine = PersonaStateEngine(cfg)
-    client = RecordingChatClient(
-        json.dumps(
-            {
-                "event_type": "neutral",
-                "perceived_intent": "user says hi",
-                "affect_delta": {"valence": 0.01, "arousal": 0.0},
-                "relationship_event": False,
-                "relationship_delta": {
-                    "affinity": 0.0,
-                    "dominance": 0.0,
-                    "defensiveness": 0.0,
-                    "trust": 0.0,
-                },
-                "personality_signal": False,
-                "personality_delta": {
-                    "openness": 0.0,
-                    "conscientiousness": 0.0,
-                    "extraversion": 0.0,
-                    "agreeableness": 0.0,
-                    "neuroticism": 0.0,
-                },
-                "mood_label": "warm_neutral",
-                "residue": "",
-                "confidence": 0.8,
-            },
-            ensure_ascii=False,
-        )
-    )
+    client = RecordingChatClient(_valid_persona_payload())
     engine.client = client
 
     await engine.update_from_exchange("sess-thinking", "哥哥在吗", "在。")
 
     assert client.calls[0]["extra_body"] == {"thinking": {"type": "enabled"}}
+
+
+@pytest.mark.asyncio
+async def test_persona_empty_thinking_mode_falls_back_to_disabled(test_config):
+    # 线上 config 的实际值就是空字符串（GET /api/persona 实测）。
+    # 空值必须 fallback 到显式 disabled，不能让 DeepSeek 服务端默认思维链
+    # 偷偷吃掉 max_tokens 预算。
+    cfg = deepcopy(test_config)
+    cfg["dehydration"]["api_key"] = ""
+    cfg["persona"].update(
+        api_key="test-key",
+        model="deepseek-v4-flash",
+        thinking_mode="",
+    )
+    engine = PersonaStateEngine(cfg)
+    client = RecordingChatClient(_valid_persona_payload())
+    engine.client = client
+
+    await engine.update_from_exchange("sess-empty-thinking", "哥哥在吗", "在。")
+
+    assert client.calls[0]["extra_body"] == {"thinking": {"type": "disabled"}}

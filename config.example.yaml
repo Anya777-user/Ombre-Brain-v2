@@ -445,12 +445,13 @@ persona:
   mode: "llm"
   base_url: "https://api.deepseek.com/v1"
   model: "deepseek-v4-flash"
-  # Optional thinking mode override for DeepSeek v4 models:
-  #   disabled = non-thinking / enabled = thinking / empty = provider default
-  thinking_mode: ""
+  # Thinking mode for DeepSeek v4 models. Explicitly disabled: an empty /
+  # unknown value also falls back to disabled (see _normalize_thinking_mode),
+  # so provider-side default thinking can never silently eat the token budget.
+  thinking_mode: "disabled"
   # api_key: ""                  # Use OMBRE_PERSONA_API_KEY; falls back to OMBRE_API_KEY
   temperature: 0.1
-  max_tokens: 500
+  max_tokens: 2000
   global_decay_hours: 168
   session_mood_half_life_minutes: 90
   max_personality_delta: 0.01

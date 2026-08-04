@@ -542,9 +542,20 @@ class PersonaStateEngine:
                 ],
                 **self._completion_options(),
             )
-            raw = response.choices[0].message.content if response.choices else ""
+            choice = response.choices[0] if response.choices else None
+            raw = choice.message.content if choice else ""
+            finish_reason = getattr(choice, "finish_reason", None)
             parsed = self._parse_json(raw or "")
             if parsed is None:
+                if finish_reason == "length":
+                    # 输出到达 max_tokens 被截断：预算问题，不是 JSON 畸形。
+                    # 修复方向是调 max_tokens / thinking_mode，不是调 prompt。
+                    logger.warning(
+                        "Persona evaluator output truncated (max_tokens=%s, finish_reason=length) — recording error. raw=%s",
+                        self.max_tokens,
+                        str(raw)[:300],
+                    )
+                    return None, raw or "", "persona LLM output truncated (max_tokens)"
                 # 宁可记一条 error，也不要有「刚才好像有点卡住了」这种假记录。
                 # flash 返回空内容或不可解析 JSON 时，走失败分支，让 error 可见。
                 logger.warning("Persona evaluator returned malformed JSON — recording error. raw=%s", str(raw)[:300])
@@ -1354,4 +1365,4 @@ class PersonaStateEngine:
             "non-thinking": "disabled",
             "non_thinking": "disabled",
         }
-        return aliases.get(normalized, "")
+        return aliases.get(normalized, "disabled")

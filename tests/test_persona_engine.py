@@ -10,18 +10,24 @@ from persona_engine import FALLBACK_GUIDANCE, POST_REPLY_EVALUATION_PROMPT, Pers
 
 
 class FakePersonaClient:
-    def __init__(self, content: str | list[str]):
+    def __init__(self, content: str | list[str], finish_reason: str | list[str] | None = None):
         self.chat = SimpleNamespace(
             completions=SimpleNamespace(create=self._create)
         )
         self.contents = content if isinstance(content, list) else [content]
+        if finish_reason is None:
+            self.finish_reasons = [None] * len(self.contents)
+        elif isinstance(finish_reason, list):
+            self.finish_reasons = finish_reason
+        else:
+            self.finish_reasons = [finish_reason] * len(self.contents)
         self.calls = []
 
     async def _create(self, **kwargs):
         self.calls.append(kwargs)
         index = min(len(self.calls) - 1, len(self.contents) - 1)
         message = SimpleNamespace(content=self.contents[index])
-        choice = SimpleNamespace(message=message)
+        choice = SimpleNamespace(message=message, finish_reason=self.finish_reasons[index])
         return SimpleNamespace(choices=[choice])
 
 
@@ -420,6 +426,26 @@ def test_persona_session_mood_half_life_decay(test_config):
     assert state["affect"]["valence"] == pytest.approx(0.78, abs=0.01)
     assert state["affect"]["arousal"] == pytest.approx(0.67, abs=0.01)
     assert state["relationship"]["defensiveness"] == pytest.approx(0.56, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_persona_length_finish_reason_records_truncated_not_malformed(test_config):
+    engine = PersonaStateEngine(_persona_config(test_config))
+    # 空内容 + finish_reason=length：是 max_tokens 截断，不是 JSON 畸形。
+    engine.client = FakePersonaClient("", finish_reason="length")
+
+    await engine.update_from_exchange(
+        "session-truncated",
+        "爱你daddy",
+        "我也爱你。",
+    )
+
+    conn = sqlite3.connect(engine.db_path)
+    row = conn.execute("SELECT error, inner_thought FROM persona_events").fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == "persona LLM output truncated (max_tokens)"
+    assert row[1] is None
 
 
 @pytest.mark.asyncio
